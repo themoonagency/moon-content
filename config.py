@@ -35,7 +35,7 @@ class Config:
     # --- Meta (Facebook + Instagram) ---
     META_SYSTEM_USER_TOKEN = _opt("META_SYSTEM_USER_TOKEN")
     META_PAGE_ID = _opt("META_PAGE_ID", "104878805077409")
-    META_IG_ID = _opt("META_IG_ID", "17841447599150680")
+    META_IG_ID = _opt("META_IG_ID", "17841447599150600")
     META_GRAPH_VERSION = _opt("META_GRAPH_VERSION", "v21.0")
 
     # --- Gemini (generare text) ---

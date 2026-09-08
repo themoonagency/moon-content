@@ -44,7 +44,7 @@ unde le-am pregătit):
 | `WP_APP_PASSWORD` | parola de aplicație WordPress pe care mi-ai dat-o |
 | `META_SYSTEM_USER_TOKEN` | token-ul System User "Moon Content" de pe Meta |
 | `META_PAGE_ID` | `104878805077409` |
-| `META_IG_ID` | `17841447599150680` |
+| `META_IG_ID` | `17841447599150600` |
 | `GEMINI_API_KEY` | cheia Gemini |
 | `OPENAI_API_KEY` | cheia OpenAI |
 | `TELEGRAM_BOT_TOKEN` | token-ul de la @BotFather (`MoonContent_bot`) |
@@ -77,7 +77,7 @@ export WP_USER=MOON
 export WP_APP_PASSWORD=...
 export META_SYSTEM_USER_TOKEN=...
 export META_PAGE_ID=104878805077409
-export META_IG_ID=17841447599150680
+export META_IG_ID=17841447599150600
 export GEMINI_API_KEY=...
 export OPENAI_API_KEY=...
 export TELEGRAM_BOT_TOKEN=...

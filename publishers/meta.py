@@ -16,6 +16,17 @@ from config import config
 GRAPH = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}"
 
 
+def _raise_with_body(resp: requests.Response) -> None:
+    """Ca raise_for_status(), dar include mesajul de eroare al Graph API —
+    Meta explică de obicei exact motivul (parametru invalid, format
+    neacceptat, permisiune lipsă etc.)."""
+    if resp.status_code >= 400:
+        raise requests.exceptions.HTTPError(
+            f"{resp.status_code} for url {resp.url}\nRăspuns Meta: {resp.text[:800]}",
+            response=resp,
+        )
+
+
 def _page_access_token() -> str:
     """System User token -> page access token (necesar pt. postare pe Pagină)."""
     url = f"{GRAPH}/{config.META_PAGE_ID}"
@@ -23,7 +34,7 @@ def _page_access_token() -> str:
         "fields": "access_token",
         "access_token": config.META_SYSTEM_USER_TOKEN,
     }, timeout=30)
-    resp.raise_for_status()
+    _raise_with_body(resp)
     return resp.json()["access_token"]
 
 
@@ -35,7 +46,7 @@ def publish_facebook_photo(image_url: str, message: str) -> dict:
         "caption": message,
         "access_token": page_token,
     }, timeout=60)
-    resp.raise_for_status()
+    _raise_with_body(resp)
     return resp.json()  # conține "post_id"
 
 
@@ -49,7 +60,7 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
         "caption": caption,
         "access_token": page_token,
     }, timeout=60)
-    resp.raise_for_status()
+    _raise_with_body(resp)
     creation_id = resp.json()["id"]
 
     # Pas 2: așteaptă ca Instagram să proceseze imaginea
@@ -59,7 +70,7 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
             "fields": "status_code",
             "access_token": page_token,
         }, timeout=30)
-        status_resp.raise_for_status()
+        _raise_with_body(status_resp)
         status = status_resp.json().get("status_code")
         if status == "FINISHED":
             break
@@ -73,5 +84,5 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
         "creation_id": creation_id,
         "access_token": page_token,
     }, timeout=60)
-    publish_resp.raise_for_status()
+    _raise_with_body(publish_resp)
     return publish_resp.json()  # conține "id" (media id publicat)
