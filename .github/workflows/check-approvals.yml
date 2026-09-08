@@ -3,7 +3,12 @@ name: Moon Content - Verifică aprobări
 on:
   schedule:
     - cron: "*/15 * * * *"  # la fiecare 15 minute
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_draft_id:
+        description: "ID de ciornă de publicat direct, ignorând Telegram (folosește doar in caz de urgenta)"
+        required: false
+        type: string
 
 jobs:
   check:
@@ -31,6 +36,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           AUTO_PUBLISH_IF_NO_RESPONSE: ${{ vars.AUTO_PUBLISH_IF_NO_RESPONSE }}
           AUTO_PUBLISH_AFTER_HOURS: ${{ vars.AUTO_PUBLISH_AFTER_HOURS }}
+          FORCE_DRAFT_ID: ${{ inputs.force_draft_id }}
         run: python check_approvals.py
 
       - name: Salvează starea (offset Telegram + statusuri ciorne)

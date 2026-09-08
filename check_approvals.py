@@ -101,8 +101,10 @@ def publish_draft(draft_id: str) -> None:
 def process_telegram_updates() -> None:
     offset = _load_offset()
     updates = get_updates(offset=offset)
+    print(f"[telegram] offset={offset} -> {len(updates)} update(s) primite")
 
     for update in updates:
+        print(f"[telegram] update_id={update['update_id']} keys={list(update.keys())}")
         _save_offset(update["update_id"] + 1)
 
         callback = update.get("callback_query")
@@ -110,6 +112,7 @@ def process_telegram_updates() -> None:
             continue
 
         data = callback.get("data", "")
+        print(f"[telegram] callback data={data!r}")
         if ":" not in data:
             continue
         action, draft_id = data.split(":", 1)
@@ -138,6 +141,17 @@ def process_auto_publish_timeouts() -> None:
 
 
 def main() -> None:
+    # Supapă manuală de urgență: dacă FORCE_DRAFT_ID e setat (din
+    # workflow_dispatch input), publică direct acel draft, indiferent de
+    # starea din Telegram — util când răspunsul de pe Telegram s-a pierdut
+    # sau nu a fost procesat dintr-un motiv neclar.
+    force_id = os.environ.get("FORCE_DRAFT_ID", "").strip()
+    if force_id:
+        print(f"[force] publicare fortata pentru draft {force_id}")
+        update_draft(force_id, status="approved")
+        publish_draft(force_id)
+        return
+
     process_telegram_updates()
     process_auto_publish_timeouts()
 
