@@ -78,7 +78,17 @@ def _extract_json(text: str) -> dict:
     text = text.strip()
     text = re.sub(r"^```(json)?", "", text).strip()
     text = re.sub(r"```$", "", text).strip()
-    return json.loads(text)
+    # Gemini (mai ales cu grounding activ) poate adăuga text în plus înainte/după
+    # obiectul JSON (ex. note despre surse) — păstrăm doar ce e între prima
+    # și ultima acoladă.
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1:
+        text = text[start:end + 1]
+    # strict=False permite caractere de control (linii noi brute) în interiorul
+    # șirurilor — articolul HTML vine des cu \n literali, nu escapați, ceea ce
+    # strică parsarea JSON strictă altfel.
+    return json.loads(text, strict=False)
 
 
 def _call_gemini(payload: dict, max_retries: int = 4) -> dict:
