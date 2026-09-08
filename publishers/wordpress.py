@@ -12,6 +12,17 @@ def _auth() -> HTTPBasicAuth:
     return HTTPBasicAuth(config.WP_USER, config.WP_APP_PASSWORD)
 
 
+# Multe firewall-uri/WAF-uri de hosting blochează implicit user-agent-ul
+# generic al requests ("python-requests/x.x") ca fiind trafic de bot.
+# Ne prezentăm ca un browser obișnuit, ca să trecem de acel filtru.
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    )
+}
+
+
 def _raise_with_body(resp: requests.Response) -> None:
     """Ca raise_for_status(), dar include corpul răspunsului în eroare —
     esențial pt. diagnostic (WordPress/hosting-ul explică de obicei EXACT
@@ -30,6 +41,7 @@ def upload_media(image_bytes: bytes, filename: str = "moon-content.png") -> dict
     nu acceptă fișierul trimis direct)."""
     url = f"{config.WP_URL}/wp-json/wp/v2/media"
     headers = {
+        **_HEADERS,
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Content-Type": "image/png",
     }
@@ -57,7 +69,7 @@ def create_post(
     if featured_media_id:
         payload["featured_media"] = featured_media_id
 
-    resp = requests.post(url, json=payload, auth=_auth(), timeout=60)
+    resp = requests.post(url, json=payload, auth=_auth(), headers=_HEADERS, timeout=60)
     _raise_with_body(resp)
     data = resp.json()
     return {"id": data["id"], "link": data.get("link")}
