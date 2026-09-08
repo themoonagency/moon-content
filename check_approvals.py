@@ -84,17 +84,21 @@ def publish_draft(draft_id: str) -> None:
         status="published",
         wp_link=wp_result.get("link"),
         fb_post_id=(fb_result or {}).get("post_id"),
+        fb_link=(fb_result or {}).get("permalink_url"),
         ig_media_id=(ig_result or {}).get("id"),
+        ig_link=(ig_result or {}).get("permalink_url"),
     )
 
     if os.path.exists(img_path):
         os.remove(img_path)
 
+    fb_line = fb_result.get("permalink_url") if fb_result else "eșuat/lipsă (vezi mesajul de mai sus)"
+    ig_line = ig_result.get("permalink_url") if ig_result else "eșuat/lipsă (vezi mesajul de mai sus)"
     send_notice(
         f"✅ Publicat: *{draft['seo_title']}*\n"
         f"WordPress: {wp_result.get('link')}\n"
-        f"Facebook: {'ok' if fb_result else 'eșuat/lipsă'}\n"
-        f"Instagram: {'ok' if ig_result else 'eșuat/lipsă'}"
+        f"Facebook: {fb_line}\n"
+        f"Instagram: {ig_line}"
     )
 
 

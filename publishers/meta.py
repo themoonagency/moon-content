@@ -47,7 +47,23 @@ def publish_facebook_photo(image_url: str, message: str) -> dict:
         "access_token": page_token,
     }, timeout=60)
     _raise_with_body(resp)
-    return resp.json()  # conține "post_id"
+    result = resp.json()  # conține "id" (poza) și "post_id"
+
+    # Luăm link-ul public direct, ca să poată fi verificat imediat (nu se
+    # presupune doar că a mers — se arată exact unde a apărut).
+    post_id = result.get("post_id")
+    if post_id:
+        try:
+            link_resp = requests.get(f"{GRAPH}/{post_id}", params={
+                "fields": "permalink_url",
+                "access_token": page_token,
+            }, timeout=30)
+            if link_resp.status_code < 400:
+                result["permalink_url"] = link_resp.json().get("permalink_url")
+        except requests.RequestException:
+            pass  # linkul e un bonus — dacă eșuează, tot restul publicării rămâne valabil
+
+    return result
 
 
 def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3, max_polls: int = 20) -> dict:
@@ -85,4 +101,20 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
         "access_token": page_token,
     }, timeout=60)
     _raise_with_body(publish_resp)
-    return publish_resp.json()  # conține "id" (media id publicat)
+    result = publish_resp.json()  # conține "id" (media id publicat)
+
+    # Link public către postare (Instagram nu-l dă direct din media_publish,
+    # trebuie cerut separat pe id-ul media-ului publicat).
+    media_id = result.get("id")
+    if media_id:
+        try:
+            link_resp = requests.get(f"{GRAPH}/{media_id}", params={
+                "fields": "permalink",
+                "access_token": page_token,
+            }, timeout=30)
+            if link_resp.status_code < 400:
+                result["permalink_url"] = link_resp.json().get("permalink")
+        except requests.RequestException:
+            pass
+
+    return result
