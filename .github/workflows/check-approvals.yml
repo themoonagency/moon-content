@@ -1,0 +1,42 @@
+name: Moon Content - Verifică aprobări
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"  # la fiecare 15 minute
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Verifică Telegram și publică ciornele aprobate
+        env:
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          META_SYSTEM_USER_TOKEN: ${{ secrets.META_SYSTEM_USER_TOKEN }}
+          META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
+          META_IG_ID: ${{ secrets.META_IG_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          AUTO_PUBLISH_IF_NO_RESPONSE: ${{ vars.AUTO_PUBLISH_IF_NO_RESPONSE }}
+          AUTO_PUBLISH_AFTER_HOURS: ${{ vars.AUTO_PUBLISH_AFTER_HOURS }}
+        run: python check_approvals.py
+
+      - name: Salvează starea (offset Telegram + statusuri ciorne)
+        run: |
+          git config user.name "moon-content-bot"
+          git config user.email "moon-content-bot@users.noreply.github.com"
+          git add state/
+          git diff --cached --quiet || git commit -m "Actualizare stare $(date -u +%F-%H%M)"
+          git push

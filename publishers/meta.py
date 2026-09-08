@@ -1,0 +1,77 @@
+"""
+Publicare pe Facebook (Pagină) și Instagram, cu System User token
+("Moon Content" — vezi setup în README).
+
+Facebook: un singur apel, poză + text, direct pe Pagină.
+Instagram: flux în doi pași (container -> publish), cerut de Graph API.
+Instagram NU acceptă imagini trimise ca fișier direct — cere un URL public.
+De-asta, poza se urcă întâi pe WordPress (Media Library, deja publică),
+și se refolosește URL-ul de acolo pentru Instagram.
+"""
+import time
+import requests
+
+from config import config
+
+GRAPH = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}"
+
+
+def _page_access_token() -> str:
+    """System User token -> page access token (necesar pt. postare pe Pagină)."""
+    url = f"{GRAPH}/{config.META_PAGE_ID}"
+    resp = requests.get(url, params={
+        "fields": "access_token",
+        "access_token": config.META_SYSTEM_USER_TOKEN,
+    }, timeout=30)
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+
+def publish_facebook_photo(image_url: str, message: str) -> dict:
+    page_token = _page_access_token()
+    url = f"{GRAPH}/{config.META_PAGE_ID}/photos"
+    resp = requests.post(url, data={
+        "url": image_url,
+        "caption": message,
+        "access_token": page_token,
+    }, timeout=60)
+    resp.raise_for_status()
+    return resp.json()  # conține "post_id"
+
+
+def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3, max_polls: int = 20) -> dict:
+    page_token = _page_access_token()
+
+    # Pas 1: creează containerul media
+    create_url = f"{GRAPH}/{config.META_IG_ID}/media"
+    resp = requests.post(create_url, data={
+        "image_url": image_url,
+        "caption": caption,
+        "access_token": page_token,
+    }, timeout=60)
+    resp.raise_for_status()
+    creation_id = resp.json()["id"]
+
+    # Pas 2: așteaptă ca Instagram să proceseze imaginea
+    status_url = f"{GRAPH}/{creation_id}"
+    for _ in range(max_polls):
+        status_resp = requests.get(status_url, params={
+            "fields": "status_code",
+            "access_token": page_token,
+        }, timeout=30)
+        status_resp.raise_for_status()
+        status = status_resp.json().get("status_code")
+        if status == "FINISHED":
+            break
+        time.sleep(poll_seconds)
+    else:
+        raise RuntimeError("Instagram nu a terminat procesarea imaginii la timp.")
+
+    # Pas 3: publică
+    publish_url = f"{GRAPH}/{config.META_IG_ID}/media_publish"
+    publish_resp = requests.post(publish_url, data={
+        "creation_id": creation_id,
+        "access_token": page_token,
+    }, timeout=60)
+    publish_resp.raise_for_status()
+    return publish_resp.json()  # conține "id" (media id publicat)
