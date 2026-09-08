@@ -15,6 +15,7 @@ Returnează un dict gata de pus în draft (vezi state.save_draft).
 """
 import json
 import re
+import time
 import requests
 
 from config import config
@@ -80,6 +81,23 @@ def _extract_json(text: str) -> dict:
     return json.loads(text)
 
 
+def _call_gemini(payload: dict, max_retries: int = 4) -> dict:
+    """Apel Gemini cu reîncercare la 429 (limită de rată) — cotele Gemini
+    sunt pe proiect și se pot atinge temporar, mai ales pe modele mari."""
+    delay = 8
+    last_error = None
+    for attempt in range(max_retries):
+        resp = requests.post(GEMINI_URL, json=payload, timeout=90)
+        if resp.status_code == 429:
+            last_error = resp
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+            continue
+        resp.raise_for_status()
+        return resp.json()
+    last_error.raise_for_status()
+
+
 def generate_authority_draft() -> dict:
     used_topics = recent_topic_titles(days=45)
     used_block = "\n".join(f"- {t}" for t in used_topics) or "(niciunul încă)"
@@ -95,9 +113,7 @@ def generate_authority_draft() -> dict:
         },
     }
 
-    resp = requests.post(GEMINI_URL, json=payload, timeout=90)
-    resp.raise_for_status()
-    data = resp.json()
+    data = _call_gemini(payload)
 
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"]
