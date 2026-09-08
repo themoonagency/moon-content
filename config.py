@@ -19,7 +19,11 @@ def _req(name: str) -> str:
     return val
 
 def _opt(name: str, default: str = "") -> str:
-    return os.environ.get(name, default).strip()
+    # GitHub Actions trimite variabilele nesetate ca string gol, nu lipsă —
+    # tratăm string gol la fel ca "nesetat", altfel valorile implicite
+    # (ex. AUTO_PUBLISH_AFTER_HOURS) nu s-ar mai aplica niciodată din Actions.
+    val = os.environ.get(name, "").strip()
+    return val if val else default
 
 
 class Config:
