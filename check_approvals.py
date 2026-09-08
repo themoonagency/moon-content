@@ -34,7 +34,7 @@ def _save_offset(offset: int) -> None:
 
 
 def _image_path(draft_id: str) -> str:
-    return f"{config.STATE_DIR}/img_{draft_id}.png"
+    return f"{config.STATE_DIR}/img_{draft_id}.jpg"
 
 
 def publish_draft(draft_id: str) -> None:

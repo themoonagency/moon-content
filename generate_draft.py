@@ -47,7 +47,7 @@ def main() -> None:
     # check_approvals.py să o poată re-folosi la publicare fără să o
     # regenereze (regenerarea ar costa din nou și ar da altă imagine)
     if image_bytes:
-        with open(f"{config.STATE_DIR}/img_{draft_id}.png", "wb") as f:
+        with open(f"{config.STATE_DIR}/img_{draft_id}.jpg", "wb") as f:
             f.write(image_bytes)
 
     record_topic(content["topic_title"], content["angle"])

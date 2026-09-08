@@ -37,7 +37,7 @@ def send_for_approval(draft_id: str, title: str, article_preview: str,
                 "parse_mode": "Markdown",
                 "reply_markup": json.dumps(keyboard),
             },
-            files={"photo": ("preview.png", image_bytes, "image/png")},
+            files={"photo": ("preview.jpg", image_bytes, "image/jpeg")},
             timeout=60,
         )
     else:

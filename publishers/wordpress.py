@@ -35,7 +35,7 @@ def _raise_with_body(resp: requests.Response) -> None:
         )
 
 
-def upload_media(image_bytes: bytes, filename: str = "moon-content.png") -> dict:
+def upload_media(image_bytes: bytes, filename: str = "moon-content.jpg") -> dict:
     """Încarcă imaginea în Media Library. Întoarce {"id": ..., "url": ...} —
     URL-ul e necesar pt. Meta (Facebook/Instagram cer o adresă publică,
     nu acceptă fișierul trimis direct)."""
@@ -43,7 +43,7 @@ def upload_media(image_bytes: bytes, filename: str = "moon-content.png") -> dict
     headers = {
         **_HEADERS,
         "Content-Disposition": f'attachment; filename="{filename}"',
-        "Content-Type": "image/png",
+        "Content-Type": "image/jpeg",
     }
     resp = requests.post(url, headers=headers, data=image_bytes, auth=_auth(), timeout=60)
     _raise_with_body(resp)
