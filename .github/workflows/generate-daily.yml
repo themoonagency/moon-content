@@ -34,6 +34,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python generate_draft.py
 
+      - name: Actualizează panoul de control
+        env:
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+        run: python dashboard.py
+
       - name: Salvează starea (ciorne + imagine temporară)
         run: |
           git config user.name "moon-content-bot"
