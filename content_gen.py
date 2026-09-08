@@ -43,7 +43,6 @@ Cauți o noutate/tendință recentă și relevantă din nișă, apoi scrii:
    - Include, dacă citezi o cifră sau un fapt din știre, sursa (nume + link
      dacă îl ai)
    - Se încheie cu un CTA spre serviciile {config.CLIENT_NAME}
-
 2. Un TEXT PENTRU FACEBOOK (sub 400 caractere), NU e copy-paste din articol
    — unghi propriu, CTA propriu, poate pune o întrebare la final.
 
@@ -59,6 +58,10 @@ REGULI STRICTE:
 - NU repeta subiecte tratate recent (lista e mai jos) — alege altceva.
 - NU inventa cifre sau citate. Dacă nu ești sigur de o cifră, nu o pune.
 - Răspunde DOAR cu un obiect JSON valid, fără text în plus, fără ```json.
+- FOARTE IMPORTANT pentru JSON valid: în interiorul textelor (title, article_html
+  etc.) NU folosi niciodată ghilimele duble drepte ("). Dacă ai nevoie de un
+  citat sau de accent pe un cuvânt, folosește ghilimele unghiulare « » sau
+  apostrof simplu ('), niciodată ".
 
 Format JSON exact:
 {{
@@ -89,6 +92,29 @@ def _extract_json(text: str) -> dict:
     # șirurilor — articolul HTML vine des cu \n literali, nu escapați, ceea ce
     # strică parsarea JSON strictă altfel.
     return json.loads(text, strict=False)
+
+
+REPAIR_PROMPT = """Textul de mai jos ar trebui să fie un obiect JSON valid, dar
+are o eroare de sintaxă (probabil ghilimele duble nescăpate în interiorul unui
+text, sau alt caracter care strică JSON-ul). Repară-l și răspunde DOAR cu
+obiectul JSON corect, fără alt text, fără ```json. Păstrează tot conținutul —
+schimbă doar ce e strict necesar ca JSON-ul să fie valid (ex. înlocuiește
+ghilimelele duble din interiorul textelor cu ghilimele unghiulare « » sau
+apostrof simplu).
+
+TEXT DE REPARAT:
+{broken}
+"""
+
+
+def _repair_json(broken_text: str) -> dict:
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": REPAIR_PROMPT.format(broken=broken_text)}]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096},
+    }
+    data = _call_gemini(payload)
+    text = data["candidates"][0]["content"]["parts"][0]["text"]
+    return _extract_json(text)
 
 
 def _call_gemini(payload: dict, max_retries: int = 4) -> dict:
@@ -130,7 +156,13 @@ def generate_authority_draft() -> dict:
     except (KeyError, IndexError) as e:
         raise RuntimeError(f"Răspuns Gemini neașteptat: {json.dumps(data)[:500]}") from e
 
-    parsed = _extract_json(text)
+    try:
+        parsed = _extract_json(text)
+    except json.JSONDecodeError:
+        # JSON invalid (de obicei ghilimele nescăpate în text) — încercăm o
+        # reparație automată printr-un al doilea apel Gemini, mai ieftin
+        # decât să pierdem toată generarea și subiectul ales.
+        parsed = _repair_json(text)
 
     required = [
         "topic_title", "angle", "seo_title", "meta_description",
