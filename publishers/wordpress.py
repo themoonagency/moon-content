@@ -12,6 +12,18 @@ def _auth() -> HTTPBasicAuth:
     return HTTPBasicAuth(config.WP_USER, config.WP_APP_PASSWORD)
 
 
+def _raise_with_body(resp: requests.Response) -> None:
+    """Ca raise_for_status(), dar include corpul răspunsului în eroare —
+    esențial pt. diagnostic (WordPress/hosting-ul explică de obicei EXACT
+    de ce a respins cererea: plugin de securitate, autentificare, etc.)."""
+    if resp.status_code >= 400:
+        raise requests.exceptions.HTTPError(
+            f"{resp.status_code} {resp.reason} for url {resp.url}\n"
+            f"Răspuns server (primele 1000 caractere): {resp.text[:1000]}",
+            response=resp,
+        )
+
+
 def upload_media(image_bytes: bytes, filename: str = "moon-content.png") -> dict:
     """Încarcă imaginea în Media Library. Întoarce {"id": ..., "url": ...} —
     URL-ul e necesar pt. Meta (Facebook/Instagram cer o adresă publică,
@@ -22,7 +34,7 @@ def upload_media(image_bytes: bytes, filename: str = "moon-content.png") -> dict
         "Content-Type": "image/png",
     }
     resp = requests.post(url, headers=headers, data=image_bytes, auth=_auth(), timeout=60)
-    resp.raise_for_status()
+    _raise_with_body(resp)
     data = resp.json()
     return {"id": data["id"], "url": data.get("source_url")}
 
@@ -46,7 +58,7 @@ def create_post(
         payload["featured_media"] = featured_media_id
 
     resp = requests.post(url, json=payload, auth=_auth(), timeout=60)
-    resp.raise_for_status()
+    _raise_with_body(resp)
     data = resp.json()
     return {"id": data["id"], "link": data.get("link")}
 
