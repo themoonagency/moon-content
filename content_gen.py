@@ -110,7 +110,7 @@ TEXT DE REPARAT:
 def _repair_json(broken_text: str) -> dict:
     payload = {
         "contents": [{"role": "user", "parts": [{"text": REPAIR_PROMPT.format(broken=broken_text)}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096},
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
     }
     data = _call_gemini(payload)
     text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -145,7 +145,7 @@ def generate_authority_draft() -> dict:
         "tools": [{"google_search": {}}],
         "generationConfig": {
             "temperature": 0.8,
-            "maxOutputTokens": 4096,
+            "maxOutputTokens": 8192,
         },
     }
 
