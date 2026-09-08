@@ -49,10 +49,25 @@ Cauți o noutate/tendință recentă și relevantă din nișă, apoi scrii:
 3. Un TEXT PENTRU INSTAGRAM (sub 300 caractere), ton mai vizual/scurt,
    3-5 hashtag-uri relevante la final.
 
-4. Un PROMPT DE IMAGINE (în engleză, pentru un generator de imagini):
-   descriere concretă a unei imagini relevante pentru articol — stil
-   fotografic modern, curat, fără text suprapus în imagine, fără logo-uri
-   sau mărci concurente, fără persoane reale identificabile.
+4. Un PROMPT DE IMAGINE (în engleză, pentru un generator de imagini) —
+   TREBUIE să fie foarte concret și descriptiv, NU generic. Reguli stricte
+   pentru promptul de imagine:
+   - Pornește de la un ELEMENT VIZUAL SPECIFIC din articol (nu "modern tech
+     office", nu "person using laptop with charts" — alege un detaliu
+     concret: un obiect, o scenă, o metaforă vizuală legată de subiectul
+     exact al articolului)
+   - Descrie explicit: compoziția (prim-plan/fundal, unghi de cameră),
+     iluminarea (ex. "dramatic side lighting", "soft morning light"),
+     paleta de culori (preferă accente de roșu/coral pe fundal închis —
+     identitatea vizuală a agenției — fără să ceară text sau logo-uri
+     suprapuse, alea se adaugă separat)
+   - Stil: fotografie editorială high-end sau ilustrație 3D modernă,
+     NICIODATĂ stil de stock photo generic sau clip-art
+   - 2-4 propoziții, cât mai concret posibil — un generator de imagini
+     produce rezultate mult mai bune din descrieri specifice decât din
+     concepte abstracte
+   - Fără text suprapus în imagine, fără logo-uri sau mărci concurente,
+     fără persoane reale identificabile
 
 REGULI STRICTE:
 - NU repeta subiecte tratate recent (lista e mai jos) — alege altceva.
