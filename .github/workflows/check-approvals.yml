@@ -2,7 +2,7 @@ name: Moon Content - Verifică aprobări
 
 on:
   schedule:
-    - cron: "*/15 * * * *"  # la fiecare 15 minute
+    - cron: "*/5 * * * *"  # la fiecare 5 minute (repo public = minute Actions nelimitate gratuit)
   workflow_dispatch:
     inputs:
       force_draft_id:
