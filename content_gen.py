@@ -30,6 +30,45 @@ def _gemini_url() -> str:
         f"{config.GEMINI_MODEL}:generateContent?key={config.GEMINI_API_KEY}"
     )
 
+def _pagini_site() -> str:
+    """Paginile citite de panou de pe site-ul clientului. Fara ele, botul scrie
+    generic despre domeniu si inventeaza linkuri interne care nu exista."""
+    if not config.SITE:
+        return ""
+    randuri = []
+    for p in config.SITE[:20]:
+        titlu = (p.get("titlu") or "").strip()
+        url = (p.get("url") or "").strip()
+        rez = (p.get("rezumat") or "").strip()
+        if not url:
+            continue
+        randuri.append(f"- {titlu} — {url}" + (f"\n  {rez}" if rez else ""))
+    if not randuri:
+        return ""
+    return (
+        "\n\nPAGINILE REALE DE PE SITE-UL CLIENTULUI (astea sunt serviciile lui, "
+        "asa cum le prezinta el):\n" + "\n".join(randuri) +
+        "\n\nFoloseste-le ca material: scrie despre ce chiar ofera, nu despre domeniu in general. "
+        "Cand trimiti cititorul spre un serviciu, pune LINK catre pagina exacta din lista de mai sus "
+        "(2-3 linkuri interne in articol, in text, nu la final). "
+        "NU inventa pagini, servicii, preturi sau adrese care nu apar in lista."
+    )
+
+
+def _subiect_impus() -> str:
+    """Subiectul bifat de om in panou bate alegerea AI-ului."""
+    idee = config.IDEE or {}
+    titlu = (idee.get("titlu") or "").strip()
+    if not titlu:
+        return ""
+    unghi = (idee.get("unghi") or "").strip()
+    return (
+        "\n\nSUBIECTUL E DEJA ALES, nu cauta altul:\n"
+        f"- subiect: {titlu}\n" + (f"- unghiul cerut: {unghi}\n" if unghi else "") +
+        "Scrie despre exact asta. Poti cauta stiri recente ca sa-l sustii, dar nu schimba tema."
+    )
+
+
 def _system_prompt() -> str:
     return f"""
 Ești redactorul AI al agenției {config.CLIENT_NAME} ({config.CLIENT_DOMAIN}).
@@ -179,7 +218,8 @@ def generate_authority_draft() -> dict:
                 used_topics.append(t)
     used_block = "\n".join(f"- {t}" for t in used_topics) or "(niciunul încă)"
 
-    prompt = _system_prompt() + f"\n\nSubiecte tratate în ultimele 45 de zile (NU le relua):\n{used_block}\n"
+    prompt = (_system_prompt() + _pagini_site() + _subiect_impus() +
+              f"\n\nSubiecte tratate în ultimele 45 de zile (NU le relua):\n{used_block}\n")
 
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],

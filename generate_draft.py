@@ -95,6 +95,7 @@ def pentru_client(client: dict) -> None:
         "instagram_text": continut["instagram_text"],
         "are_imagine": bool(imagine),
         "produs_ext_id": (produs or {}).get("ext_id"),
+        "idee_id": (config.IDEE or {}).get("id"),
         "canale": config.CANALE,
         "slot": config.SLOT,
         # consumul, ca panoul să poată arăta costul și profitul pe client

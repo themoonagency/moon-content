@@ -69,6 +69,10 @@ class Config:
     # slotul de program pentru care rulăm acum (vine de la panou)
     SLOT = 0
     CANALE = ["wp"]
+    # paginile citite de panou de pe site-ul clientului: [{url, titlu, rezumat}]
+    SITE = []
+    # subiectul bifat de om, daca e vreunul la rand: {"id", "titlu", "unghi"}
+    IDEE = None
     LOGO_URL = ""          # logoul clientului, suprapus pe imaginile generate
 
     def aplica(self, client: dict) -> None:
@@ -114,6 +118,8 @@ class Config:
         # panoul spune ce slot e scadent și pe ce canale merge postarea asta
         self.SLOT = int(client.get("slot") or 0)
         self.CANALE = list(client.get("canale") or ["wp"])
+        self.SITE = list(client.get("site") or [])
+        self.IDEE = client.get("idee") or None
         self.LOGO_URL = c.get("logo_url") or ""
 
     def lipsuri_generare(self) -> list[str]:

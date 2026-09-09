@@ -2,8 +2,9 @@ name: MOON Post - Generare
 
 on:
   schedule:
-    # din oră în oră; panoul spune cine are postare scadentă acum
-    - cron: "0 * * * *"
+    # la 15 minute; panoul spune cine are postare scadentă acum si cine a fost
+    # pornit manual din buton. Repo public = minute Actions nelimitate.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       client_id:
