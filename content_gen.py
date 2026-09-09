@@ -19,17 +19,21 @@ import time
 import requests
 
 from config import config
-from state import recent_topic_titles
+import panel
 
-GEMINI_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{config.GEMINI_MODEL}:generateContent?key={config.GEMINI_API_KEY}"
-)
+def _gemini_url() -> str:
+    # se calculeaza la fiecare apel: modelul si cheia sunt ale clientului curent
+    return (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{config.GEMINI_MODEL}:generateContent?key={config.GEMINI_API_KEY}"
+    )
 
-SYSTEM_PROMPT = f"""
+def _system_prompt() -> str:
+    return f"""
 Ești redactorul AI al agenției {config.CLIENT_NAME} ({config.CLIENT_DOMAIN}).
 Nișa clientului: {config.CLIENT_NICHE}.
 Ton de voce: {config.CLIENT_TONE}.
+{("Subiecte preferate de client (alege din zona asta cand se poate): " + config.CLIENT_SUBIECTE) if config.CLIENT_SUBIECTE else ""}
 
 Scrii conținut pentru fluxul "autoritate" — fără produse, fără catalog.
 Cauți o noutate/tendință recentă și relevantă din nișă, apoi scrii:
@@ -42,7 +46,7 @@ Cauți o noutate/tendință recentă și relevantă din nișă, apoi scrii:
      (ușor de citat de un AI — ChatGPT/Perplexity/Gemini)
    - Include, dacă citezi o cifră sau un fapt din știre, sursa (nume + link
      dacă îl ai)
-   - Se încheie cu un CTA spre serviciile {config.CLIENT_NAME}
+   - Se încheie cu un CTA spre serviciile {config.CLIENT_NAME}{(", formulat asa: " + config.CLIENT_CTA) if config.CLIENT_CTA else ""}
 2. Un TEXT PENTRU FACEBOOK (sub 400 caractere), NU e copy-paste din articol
    — unghi propriu, CTA propriu, poate pune o întrebare la final.
 
@@ -92,6 +96,7 @@ Format JSON exact:
 """
 
 
+
 def _extract_json(text: str) -> dict:
     text = text.strip()
     text = re.sub(r"^```(json)?", "", text).strip()
@@ -132,28 +137,41 @@ def _repair_json(broken_text: str) -> dict:
     return _extract_json(text)
 
 
+# consumul ultimei generări, citit de generate_draft.py și trimis în panou
+CONSUM = {"tokens_in": 0, "tokens_out": 0}
+
+
+def _aduna_consum(data: dict) -> None:
+    u = (data or {}).get("usageMetadata") or {}
+    CONSUM["tokens_in"] += int(u.get("promptTokenCount") or 0)
+    CONSUM["tokens_out"] += int(u.get("candidatesTokenCount") or 0) + int(u.get("thoughtsTokenCount") or 0)
+
+
 def _call_gemini(payload: dict, max_retries: int = 4) -> dict:
     """Apel Gemini cu reîncercare la 429 (limită de rată) — cotele Gemini
     sunt pe proiect și se pot atinge temporar, mai ales pe modele mari."""
     delay = 8
     last_error = None
     for attempt in range(max_retries):
-        resp = requests.post(GEMINI_URL, json=payload, timeout=90)
+        resp = requests.post(_gemini_url(), json=payload, timeout=90)
         if resp.status_code == 429:
             last_error = resp
             time.sleep(delay)
             delay = min(delay * 2, 60)
             continue
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        _aduna_consum(data)
+        return data
     last_error.raise_for_status()
 
 
 def generate_authority_draft() -> dict:
-    used_topics = recent_topic_titles(days=45)
+    CONSUM["tokens_in"] = CONSUM["tokens_out"] = 0
+    used_topics = panel.subiecte_recente(config.CLIENT_ID, zile=45)
     used_block = "\n".join(f"- {t}" for t in used_topics) or "(niciunul încă)"
 
-    prompt = SYSTEM_PROMPT + f"\n\nSubiecte tratate în ultimele 45 de zile (NU le relua):\n{used_block}\n"
+    prompt = _system_prompt() + f"\n\nSubiecte tratate în ultimele 45 de zile (NU le relua):\n{used_block}\n"
 
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],

@@ -75,39 +75,6 @@ def create_post(
     return {"id": data["id"], "link": data.get("link")}
 
 
-def upsert_dashboard_post(title: str, html_content: str) -> dict:
-    """Creează sau actualizează articolul-panou de control, ca 'draft' —
-    invizibil publicului, vizibil doar cuiva logat în wp-admin (ex. Felix).
-    Rolul Autor nu poate crea Pagini WordPress, doar Articole — de-asta
-    folosim un Articol în starea 'draft', nu o Pagină.
-
-    ID-ul articolului se ține în state/dashboard_post_id.txt, ca să
-    actualizăm mereu ACELAȘI articol, nu să creăm unul nou de fiecare dată.
-    """
-    import os
-    id_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "state", "dashboard_post_id.txt")
-    existing_id = None
-    if os.path.exists(id_file):
-        existing_id = open(id_file).read().strip() or None
-
-    url = f"{config.WP_URL}/wp-json/wp/v2/posts"
-    payload = {"title": title, "content": html_content, "status": "draft"}
-
-    if existing_id:
-        resp = requests.post(f"{url}/{existing_id}", json=payload, auth=_auth(), headers=_HEADERS, timeout=30)
-        if resp.status_code == 404:
-            existing_id = None  # a fost șters manual — recreăm mai jos
-
-    if not existing_id:
-        resp = requests.post(url, json=payload, auth=_auth(), headers=_HEADERS, timeout=30)
-
-    _raise_with_body(resp)
-    data = resp.json()
-    with open(id_file, "w") as f:
-        f.write(str(data["id"]))
-    return {"id": data["id"], "link": data.get("link")}
-
-
 def publish_article(title: str, html_content: str, meta_description: str, image_bytes: bytes | None) -> dict:
     media = upload_media(image_bytes) if image_bytes else {"id": None, "url": None}
     post = create_post(

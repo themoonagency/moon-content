@@ -1,121 +1,70 @@
-# Moon Content — Faza 1 (THE MOON Agency, flux "autoritate")
+# MOON Post — motorul
 
-Bot care scrie zilnic un articol de blog + postări pentru Facebook și
-Instagram, generează o imagine, și le trimite pe Telegram pentru aprobare
-înainte de publicare. Nimic nu se publică automat (deocamdată) — vezi
-`AUTO_PUBLISH_IF_NO_RESPONSE` mai jos.
+Scrie și publică zilnic articol + postare de Facebook + postare de Instagram,
+pentru **fiecare client activ** din panoul MOON Post.
 
-## Ce face, pas cu pas
+Rulează în GitHub Actions. Nu mai ține nicio stare în repo: clienții, cheile,
+ciornele, aprobările și subiectele deja tratate stau în panou (Cloudflare Worker
++ D1 + R2). Codul panoului: `~/Moon Bot/moon-post`.
 
-1. **`generate_draft.py`** (rulează 1x/zi, cron GitHub Actions):
-   - Gemini caută o noutate recentă din nișa agenției (căutare Google
-     integrată direct în API, fără cheie separată)
-   - Scrie articolul (SEO+GEO) + text Facebook + text Instagram
-   - OpenAI generează o imagine pe baza articolului
-   - Trimite totul pe Telegram, cu butoane **Aprobă** / **Respinge**
-2. **`check_approvals.py`** (rulează la 15 min, cron separat):
-   - Citește răspunsul de pe Telegram
-   - Dacă e aprobat: publică articolul pe WordPress, apoi poza + text pe
-     Facebook și Instagram (reutilizează imaginea urcată pe WordPress,
-     Meta cere un URL public, nu acceptă fișier direct)
-   - Dacă e respins: marchează ciorna ca respinsă, nu publică nimic
-   - Trimite o confirmare pe Telegram cu linkurile publicate
+## Cum merge
 
-## Instalare (o singură dată)
+**`generate_draft.py`** (din oră în oră)
+cere panoului **cine are o postare scadentă acum** — panoul face calculul, după
+programul fiecărui client (zilnic / la N zile / mai multe postări pe zi, cu ore,
+zile și platforme alese). Pentru fiecare: scrie articolul cu Gemini (cu grounding
+pe Google Search), face imaginea cu OpenAI, o urcă în panou (R2) și lasă ciorna la
+aprobare, cu canalele slotului pe ea. Trimite și un anunț pe Telegram, dacă acel
+client are bot.
 
-### 1. Pune codul pe GitHub
-```bash
-cd moon-content
-git add -A
-git commit -m "Moon Content v1"
-git remote add origin git@github.com:themoonagency/moon-content.git
-git push -u origin main
-```
+Pornire manuală din panou (butonul „Generează acum") = `workflow_dispatch` cu
+`client_id` și `forteaza`.
 
-### 2. Adaugă secretele în GitHub
-Repo → Settings → Secrets and variables → Actions → **New repository secret**,
-câte unul pentru fiecare din astea (valorile le ai deja, din conversația
-unde le-am pregătit):
+**`check_approvals.py`** (la 5 minute)
+ia ciornele pe care le-a aprobat un om **în panou** și le publică pe canalele
+scrise pe ciornă (blog → Facebook → Instagram), apoi scrie linkurile înapoi în panou.
 
-| Secret | Valoare |
+Aprobarea se face în panou, nu pe Telegram. Telegram doar anunță, cu un buton
+care duce în panou — un singur bot nu poate ține butoane de aprobare pentru
+mai mulți clienți fără o stare partajată fragilă.
+
+## Configurare
+
+În GitHub → Settings → Secrets rămân **doar două**:
+
+| Secret | Ce e |
 |---|---|
-| `WP_URL` | `https://themoonagency.ro` |
-| `WP_USER` | `MOON` |
-| `WP_APP_PASSWORD` | parola de aplicație WordPress pe care mi-ai dat-o |
-| `META_SYSTEM_USER_TOKEN` | token-ul System User "Moon Content" de pe Meta |
-| `META_PAGE_ID` | `104878805077409` |
-| `META_IG_ID` | `17841447599150600` |
-| `GEMINI_API_KEY` | cheia Gemini |
-| `OPENAI_API_KEY` | cheia OpenAI |
-| `TELEGRAM_BOT_TOKEN` | token-ul de la @BotFather (`MoonContent_bot`) |
-| `TELEGRAM_CHAT_ID` | `895952654` |
+| `PANEL_URL` | adresa panoului, ex. `https://moon-post.themoonagency.workers.dev` |
+| `CRON_KEY` | aceeași valoare ca secretul `CRON_KEY` din worker |
 
-**Important pe termen lung:** token-ul System User de pe Meta expirat sau
-revocat trebuie regenerat manual din Business Manager, din când în când
-(în funcție de tipul de token ales la generare — cele pe termen lung țin
-luni de zile, dar nu sunt eterne).
+Per client, în panou: WordPress, Meta, Telegram, ton, nișă, CTA — fiecare bloc cu
+buton „Testează". Cât de des și unde se postează se alege la „Programul de postare".
 
-### 3. (Opțional) Activează publicarea automată după un timp
-Repo → Settings → Secrets and variables → Actions → tab **Variables**:
-- `AUTO_PUBLISH_IF_NO_RESPONSE` = `true` (implicit e `false` — nimic nu
-  se publică fără aprobare explicită)
-- `AUTO_PUBLISH_AFTER_HOURS` = `6` (sau ce interval preferi)
+**Cheile de Gemini și OpenAI sunt ale noastre**, puse o singură dată în contul MOON
+(Setări → AI). Clientului i se atribuie doar ce model folosește. Motorul primește
+cheile prin `/api/cron/clients` și raportează înapoi tokenii consumați și imaginile
+generate, ca panoul să arate costul și profitul pe fiecare client.
 
-Recomandare: lasă pe `false` primele 2-3 săptămâni, până vezi calitatea
-constantă a ciornelor.
+**Logoul suprapus pe imagini e al clientului** (încărcat sau luat de pe pagina lui
+de Facebook/Instagram). Fără logo pus în panou, imaginea iese curată — nu punem
+logoul agenției peste postările altcuiva.
 
-### 4. Testează manual, fără să aștepți cronul
-Repo → tab **Actions** → alege workflow-ul → **Run workflow**. Poți rula
-`generate-daily` oricând vrei o ciornă nouă pe loc.
+## Capcane deja rezolvate
 
-## Testare locală (opțional, înainte de a pune pe GitHub)
+- **WordPress cere „Parolă de aplicație"**, nu parola de login (Users → Profile →
+  Application Passwords). Aici a fost cauza reală a eșecurilor de publicare.
+- **Firewallul hostingului blochează user-agent-ul `python-requests`** — trimitem
+  user-agent de browser.
+- **Instagram respinge PNG** — imaginea OpenAI se convertește în JPEG.
+- **Logoul** THE MOON Agency (`assets/logo.png`) se suprapune automat dreapta-jos
+  pe fiecare imagine.
+- **Fără imagine nu se mai sare tăcut**: generarea imaginii se reîncearcă o dată,
+  ciorna e marcată explicit în panou cu motivul, Facebook primește o postare cu
+  link către articol, iar Instagram e sărit cu explicație (Instagram nu acceptă
+  postări fără imagine).
+- Retry automat la 429 pe Gemini + reparare de JSON invalid printr-un al doilea apel.
 
-```bash
-pip install -r requirements.txt
-export WP_URL=https://themoonagency.ro
-export WP_USER=MOON
-export WP_APP_PASSWORD=...
-export META_SYSTEM_USER_TOKEN=...
-export META_PAGE_ID=104878805077409
-export META_IG_ID=17841447599150600
-export GEMINI_API_KEY=...
-export OPENAI_API_KEY=...
-export TELEGRAM_BOT_TOKEN=...
-export TELEGRAM_CHAT_ID=895952654
+## Teste
 
-python generate_draft.py     # generează + trimite pe Telegram
-# ... aprobă din Telegram ...
-python check_approvals.py    # publică ce a fost aprobat
-```
-
-## Structura proiectului
-
-```
-config.py              — toate setările, citite din variabile de mediu
-state.py                — ciorne + subiecte folosite (anti-repetiție), în state/*.json
-content_gen.py          — Gemini: căutare + articol + postări sociale
-image_gen.py            — OpenAI: generare imagine
-publishers/wordpress.py — publicare articol + upload imagine
-publishers/meta.py      — publicare Facebook + Instagram
-telegram_bot.py         — trimitere spre aprobare + citire răspunsuri
-generate_draft.py       — script 1: generare zilnică
-check_approvals.py      — script 2: publicare după aprobare
-.github/workflows/      — cele două cronuri
-state/                  — NU se șterge, e memoria botului (comisă de workflow)
-```
-
-## Limitări cunoscute (de rezolvat în valuri următoare)
-
-- **Meta description pe WordPress**: momentan merge în câmpul `excerpt`.
-  Dacă site-ul folosește Yoast SEO, meta description-ul real (cel citit de
-  Google) e alt câmp (`_yoast_wpseo_metadesc`) — necesită fie un mic plugin/
-  endpoint suplimentar pe WordPress, fie completare manuală ocazională.
-  Ușor de adăugat quando vrei — spune-mi și rezolv.
-- **Threads**: lăsat deocamdată — API-ul e disponibil de curând pe cont,
-  se adaugă separat.
-- **Google Business Profile**: în așteptarea aprobării Google (case ID
-  `9-3978000041181`), se adaugă ca `publishers/gbp.py` quando vine accesul.
-- **Token Meta pe termen lung**: nu e gestionat automat — de verificat
-  manual din când în când că nu a expirat.
-- **Flux "catalog"** (magazine online): neconstruit încă — Faza 1 e doar
-  flux "autoritate", fără produse.
+`python test_motor.py` — înlocuiește `requests` cu un fals și trece motorul prin
+tot fluxul, pe doi clienți, inclusiv cazul „fără imagine". Nu atinge nicio rețea.

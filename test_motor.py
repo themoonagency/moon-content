@@ -1,0 +1,365 @@
+"""
+Test local al motorului, fără rețea: înlocuim `requests` cu un fals care
+răspunde ca panoul, Gemini, OpenAI, WordPress și Meta. Verifică fluxul întreg
+pe doi clienți, inclusiv cazul „fără imagine".
+
+Rulează:  python test_motor.py
+"""
+import base64
+import io
+import json
+import os
+import sys
+
+os.environ["PANEL_URL"] = "https://post.exemplu.ro"
+os.environ["CRON_KEY"] = "cheie-test"
+
+import requests
+from PIL import Image
+
+PICA = []
+
+
+def cer(cond, nume, extra=None):
+    print(("  ok   " if cond else "  PICA ") + nume + ("" if cond or extra is None else f"  -> {extra}"))
+    if not cond:
+        PICA.append(nume)
+
+
+def _png(culoare=(10, 10, 14)):
+    b = io.BytesIO()
+    Image.new("RGB", (64, 64), culoare).save(b, format="PNG")
+    return base64.b64encode(b.getvalue()).decode()
+
+
+# ---------------- panoul fals ----------------
+
+PANOU = {
+    "clienti": [
+        {"id": 1, "slug": "the-moon-agency", "nume": "THE MOON Agency", "domeniu": "themoonagency.ro",
+         "flux": "autoritate", "plan": "activ", "slot": 0, "canale": ["wp", "fb", "ig"], "config": {
+             "wp_url": "https://themoonagency.ro", "wp_user": "MOON", "wp_app_password": "app-pass",
+             "meta_token": "sys-token", "meta_page_id": "104878805077409", "meta_ig_id": "17841447599150600",
+             "gemini_key": "g-key", "openai_key": "o-key", "nisa": "marketing digital",
+             "cta": "Scrie-ne.",
+             "logo_url": "https://post.exemplu.ro/img/logo-1.png"}},
+        {"id": 2, "slug": "client-fara-chei", "nume": "Client fara chei", "domeniu": "exemplu.ro",
+         "flux": "autoritate", "plan": "proba", "slot": 0, "canale": ["wp"],
+         "config": {"wp_url": "https://exemplu.ro"}},
+    ],
+    "drafts": {}, "imagini": {}, "topics": {"1": ["Subiect vechi"]},
+}
+APELURI = []
+IMAGINE_PICA = False
+
+
+class Raspuns:
+    def __init__(self, date=None, cod=200, continut=b""):
+        self.status_code = cod
+        self._date = date if date is not None else {}
+        self.content = continut
+        self.text = json.dumps(self._date, ensure_ascii=False) if date is not None else ""
+        self.url = ""
+        self.reason = "OK"
+
+    def json(self):
+        return self._date
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.exceptions.HTTPError(f"{self.status_code}")
+
+
+def fals_request(metoda, url, **kw):
+    APELURI.append((metoda, url))
+    corp = kw.get("json") or {}
+
+    # --- panoul ---
+    if "/api/cron/clients" in url:
+        return Raspuns({"ok": True, "clienti": PANOU["clienti"]})
+    if "/api/cron/topics" in url:
+        cid = str((kw.get("params") or {}).get("client_id"))
+        return Raspuns({"ok": True, "titluri": PANOU["topics"].get(cid, [])})
+    if "/api/cron/drafts" in url and metoda == "POST" and url.rstrip("/").endswith("drafts"):
+        did = corp.get("id") or ("d%03d" % (len(PANOU["drafts"]) + 1))
+        # panoul real intoarce canalele ca text "wp,fb,ig", nu ca lista
+        can = corp.get("canale") or ["wp"]
+        PANOU["drafts"][did] = {**corp, "id": did, "stare": "ciorna",
+                                "canale": ",".join(can) if isinstance(can, list) else str(can)}
+        return Raspuns({"ok": True, "id": did})
+    if "/api/cron/drafts/" in url and metoda == "POST":
+        did = url.rsplit("/", 1)[-1]
+        PANOU["drafts"].setdefault(did, {"id": did}).update(corp)
+        return Raspuns({"ok": True})
+    if "/api/cron/drafts" in url and metoda == "GET":
+        stare = (kw.get("params") or {}).get("stare")
+        return Raspuns({"ok": True, "ciorne": [d for d in PANOU["drafts"].values() if d.get("stare") == stare]})
+    if "/api/cron/image/" in url and metoda == "POST":
+        did = url.rsplit("/", 1)[-1]
+        PANOU["imagini"][did] = kw.get("data")
+        PANOU["drafts"].setdefault(did, {}).update({"are_imagine": True, "imagine_key": did + ".jpg"})
+        return Raspuns({"ok": True, "url": f"https://post.exemplu.ro/img/{did}.jpg"})
+    if "poza-produs" in url and metoda == "GET":
+        b = io.BytesIO()
+        Image.new("RGB", (400, 400), (200, 40, 60)).save(b, format="JPEG")
+        return Raspuns(None, 200, b.getvalue())
+    if "logo-1.png" in url and metoda == "GET":
+        b = io.BytesIO()
+        Image.new("RGBA", (200, 50), (255, 47, 77, 255)).save(b, format="PNG")
+        return Raspuns(None, 200, b.getvalue())
+    if "/img/" in url and metoda == "GET":
+        did = url.rsplit("/", 1)[-1].replace(".jpg", "")
+        return Raspuns(None, 200, PANOU["imagini"].get(did, b""))
+
+    # --- Gemini ---
+    if "generativelanguage" in url:
+        continut = {
+            "topic_title": "Subiect nou de test", "angle": "unghi",
+            "seo_title": "Titlu SEO de test", "meta_description": "descriere",
+            "article_html": "<h1>Titlu</h1><p>text</p>", "facebook_text": "fb",
+            "instagram_text": "ig", "image_prompt": "o scena concreta",
+        }
+        return Raspuns({"candidates": [{"content": {"parts": [{"text": json.dumps(continut)}]}}],
+                        "usageMetadata": {"promptTokenCount": 1200, "candidatesTokenCount": 800}})
+
+    # --- OpenAI ---
+    if "api.openai.com" in url:
+        if IMAGINE_PICA:
+            return Raspuns({"error": "limita"}, 429)
+        if "/images/edits" in url:
+            # compunerea „wow": trebuie sa primeasca poza produsului ca fisier
+            assert "files" in kw and "image" in kw["files"], "edits fara poza de pornire"
+            return Raspuns({"data": [{"b64_json": _png((30, 30, 40))}]})
+        return Raspuns({"data": [{"b64_json": _png()}]})
+
+    # --- WordPress ---
+    if "/wp-json/wp/v2/media" in url:
+        return Raspuns({"id": 55, "source_url": "https://themoonagency.ro/wp/poza.jpg"})
+    if "/wp-json/wp/v2/posts" in url:
+        return Raspuns({"id": 99, "link": "https://themoonagency.ro/articol-de-test/"})
+
+    # --- Google Business Profile ---
+    if "oauth2.googleapis.com" in url:
+        return Raspuns({"access_token": "ya29-test"})
+    if "mybusiness.googleapis.com" in url:
+        return Raspuns({"name": "locations/123/localPosts/9", "searchUrl": "https://g.page/postare"})
+
+    # --- Meta ---
+    if "graph.facebook.com" in url:
+        if url.endswith(("/photos",)):
+            return Raspuns({"id": "1", "post_id": "p1"})
+        if url.endswith("/feed"):
+            return Raspuns({"id": "p2"})
+        if url.endswith("/media"):
+            return Raspuns({"id": "c1"})
+        if url.endswith("/media_publish"):
+            return Raspuns({"id": "m1"})
+        return Raspuns({"access_token": "page-token", "permalink_url": "https://fb.com/postare",
+                        "permalink": "https://instagram.com/p/x", "status_code": "FINISHED"})
+
+    # --- Telegram (clientul de test n-are bot, n-ar trebui apelat) ---
+    if "api.telegram.org" in url:
+        return Raspuns({"ok": True})
+
+    raise AssertionError("URL neasteptat in test: " + url)
+
+
+requests.request = fals_request
+requests.get = lambda url, **kw: fals_request("GET", url, **kw)
+requests.post = lambda url, **kw: fals_request("POST", url, **kw)
+
+import generate_draft
+import check_approvals
+from config import config
+
+print("MOON Post - test motor\n")
+
+# 1. generare pe toti clientii
+generate_draft.main_ = generate_draft.main
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+
+cer(len(PANOU["drafts"]) == 1, "clientul fara chei e sarit, celalalt primeste ciorna", list(PANOU["drafts"]))
+d = list(PANOU["drafts"].values())[0]
+cer(d["seo_title"] == "Titlu SEO de test", "ciorna are titlul de la Gemini")
+cer(d.get("are_imagine") is True, "imaginea a fost urcata in panou")
+cer(any("api.telegram.org" in u for _, u in APELURI) is False, "fara bot configurat, Telegram nu e apelat")
+
+# 2. publicare
+d["stare"] = "aprobat"
+APELURI.clear()
+check_approvals.main()
+cer(d["stare"] == "publicat", "ciorna trece in publicat", d.get("stare"))
+cer(d["rezultat"]["wp_link"].endswith("/articol-de-test/"), "linkul de WordPress ajunge in panou")
+cer(any(u.endswith("/photos") for _, u in APELURI), "Facebook: postare cu poza")
+cer(any(u.endswith("/media_publish") for _, u in APELURI), "Instagram: postare publicata")
+
+# 3. cazul fara imagine — inainte, Facebook si Instagram se sareau tacut
+IMAGINE_PICA = True
+PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d2 = list(PANOU["drafts"].values())[0]
+cer(d2.get("are_imagine") is False, "ciorna fara imagine e marcata explicit", d2.get("are_imagine"))
+cer("nu are imagine" in (d2.get("eroare") or "") and "429" in (d2.get("eroare") or ""),
+    "panoul spune de ce lipseste imaginea", d2.get("eroare"))
+
+d2["stare"] = "aprobat"
+APELURI.clear()
+check_approvals.main()
+cer(any(u.endswith("/feed") for _, u in APELURI), "fara imagine, Facebook primeste postare cu LINK")
+cer(not any(u.endswith("/media_publish") for _, u in APELURI), "fara imagine, Instagram e sarit")
+cer("Instagram sărit" in (d2.get("eroare") or ""), "panoul explica de ce lipseste Instagram", d2.get("eroare"))
+cer(d2["stare"] == "publicat", "articolul TOT s-a publicat pe WordPress")
+
+# 4. canalele din program sunt respectate la publicare
+PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear()
+IMAGINE_PICA = False
+PANOU["clienti"][0]["canale"] = ["wp"]          # doar blogul
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d3 = list(PANOU["drafts"].values())[0]
+cer(d3.get("canale") == "wp", "canalele slotului ajung pe ciorna", d3.get("canale"))
+d3["stare"] = "aprobat"
+APELURI.clear()
+check_approvals.main()
+cer(not any("graph.facebook.com" in u for _, u in APELURI),
+    "cu doar blogul in program, Meta nu e apelat deloc")
+cer(any("/wp-json/wp/v2/posts" in u for _, u in APELURI), "articolul tot se publica")
+
+# 5. slotul se trimite mai departe, ca panoul sa stie ce a rulat
+cer(d3.get("slot") == 0, "slotul ajunge pe ciorna")
+
+# 6. consumul de tokeni si logoul clientului
+import image_gen
+image_gen._LOGO_CACHE.clear()   # altfel logoul ramane din rularile de mai sus
+PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear()
+PANOU["clienti"][0]["canale"] = ["wp", "fb", "ig"]
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d4 = list(PANOU["drafts"].values())[0]
+cer(d4.get("tokens_in") == 1200 and d4.get("tokens_out") == 800,
+    "consumul de tokeni ajunge in panou", [d4.get("tokens_in"), d4.get("tokens_out")])
+cer(d4.get("imagini") == 1 and d4.get("model_imagine") == "gpt-image-1",
+    "se raporteaza si imaginea, cu modelul folosit", [d4.get("imagini"), d4.get("model_imagine")])
+cer(any("logo-1.png" in u for _, u in APELURI), "logoul clientului e descarcat si pus pe imagine")
+
+# fara logo pus in panou, imaginea iese curata
+image_gen._LOGO_CACHE.clear()
+PANOU["clienti"][0]["config"]["logo_url"] = ""
+PANOU["drafts"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+cer(not any("logo-1.png" in u for _, u in APELURI),
+    "fara logo pus, nu se pune logoul altcuiva pe imagine")
+
+# 7. Profilul Google: se publica doar daca e in canalele ciornei
+import image_gen
+image_gen._LOGO_CACHE.clear()
+PANOU["clienti"][0]["config"].update({
+    "google_client_id": "gc", "google_client_secret": "gs",
+    "gbp_refresh_token": "refresh", "gbp_location": "locations/123"})
+PANOU["clienti"][0]["canale"] = ["wp", "gbp"]
+PANOU["drafts"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d5 = list(PANOU["drafts"].values())[0]
+d5["stare"] = "aprobat"
+APELURI.clear()
+check_approvals.main()
+cer(any("localPosts" in u for _, u in APELURI), "postarea ajunge pe Profilul Google")
+cer(d5["rezultat"].get("gbp_link") == "https://g.page/postare", "linkul de Google ajunge in panou",
+    d5["rezultat"])
+cer(not any("graph.facebook.com" in u for _, u in APELURI),
+    "cu wp+gbp in program, Meta ramane neatins")
+
+# 8. fluxul catalog: scriem despre produsul primit de la panou
+image_gen._LOGO_CACHE.clear()
+PANOU["clienti"][0]["flux"] = "catalog"
+PANOU["clienti"][0]["canale"] = ["wp", "fb"]
+PRODUS = {
+    "ext_id": "SKU-77", "nume": "Parfum Test 100ml", "url": "https://exemplu.ro/p/77",
+    "pret": 249, "pret_vechi": 299, "moneda": "RON", "categorii": "Parfumuri > Barbati",
+    "descriere": "Note de lemn si citrice.", "imagine": "https://cdn.exemplu/poza-produs.jpg",
+    "mod_imagine": "catalog",
+    "conexe": [
+        {"nume": "Set cadou", "url": "https://exemplu.ro/p/88", "pret": 99, "moneda": "RON"},
+        {"nume": "Deodorant asortat", "url": "https://exemplu.ro/p/99", "pret": 49, "moneda": "RON"},
+    ],
+}
+PANOU["clienti"][0]["produs"] = dict(PRODUS)
+PANOU["drafts"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d6 = list(PANOU["drafts"].values())[0]
+cer(d6.get("produs_ext_id") == "SKU-77", "ciorna retine despre ce produs e", d6.get("produs_ext_id"))
+cer(any("poza-produs" in u for _, u in APELURI), "poza vine din catalog")
+cer(not any("api.openai.com" in u for _, u in APELURI),
+    "pe modul catalog, OpenAI nu e apelat deloc")
+cer(d6.get("imagini") == 0, "poza neatinsa nu intra la costuri", d6.get("imagini"))
+cer(d6.get("are_imagine") is True, "ciorna are totusi imagine")
+
+# 9. modul „wow": poza reala devine punctul de plecare al unei scene
+image_gen._LOGO_CACHE.clear()
+PANOU["clienti"][0]["produs"] = dict(PRODUS, mod_imagine="wow")
+PANOU["drafts"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d7 = list(PANOU["drafts"].values())[0]
+cer(any("/images/edits" in u for _, u in APELURI),
+    "modul wow trece poza prin compunere, nu prin generare de la zero")
+cer(not any("/images/generations" in u for _, u in APELURI),
+    "nu se genereaza o imagine inventata cand exista poza reala")
+cer(d7.get("imagini") == 1, "imaginea compusa se pune la costuri", d7.get("imagini"))
+
+# daca compunerea pica, ramanem cu poza din catalog, nu fara imagine
+IMAGINE_PICA = True
+image_gen._LOGO_CACHE.clear()
+PANOU["drafts"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d8 = list(PANOU["drafts"].values())[0]
+cer(d8.get("are_imagine") is True and d8.get("imagini") == 0,
+    "cand compunerea pica, ramane poza din catalog si nu se factureaza",
+    [d8.get("are_imagine"), d8.get("imagini")])
+IMAGINE_PICA = False
+
+# 10. produsele conexe ajung in promptul de catalog
+from content_gen_catalog import _prompt
+pr = _prompt(PRODUS)
+cer("Set cadou" in pr and "https://exemplu.ro/p/88" in pr,
+    "produsele conexe intra in prompt cu linkurile lor")
+cer("Merge bine cu" in pr, "promptul cere sectiunea de recomandari in articol")
+cer("NU descrie produsul in sine" in pr.replace("î", "i").replace("ă", "a").replace("ș", "s"),
+    "promptul de imagine descrie scena, nu produsul")
+
+# fara produs la rand, clientul de catalog e sarit
+PANOU["clienti"][0]["produs"] = None
+PANOU["drafts"].clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+cer(len(PANOU["drafts"]) == 0, "fara produs la rand, nu se genereaza nimic")
+PANOU["clienti"][0]["flux"] = "autoritate"
+
+print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
+sys.exit(1 if PICA else 0)

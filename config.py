@@ -1,76 +1,125 @@
 """
-Configurare Moon Content — totul vine din variabile de mediu (GitHub Secrets
-în producție, sau un fișier .env local pentru testare). Nu se pun NICIODATĂ
-chei/token-uri direct în cod.
+Configurare MOON Post.
 
-Variabile necesare (vezi README.md pentru cum se completează în GitHub):
-  WP_URL, WP_USER, WP_APP_PASSWORD
-  META_SYSTEM_USER_TOKEN, META_PAGE_ID, META_IG_ID
-  GEMINI_API_KEY
-  OPENAI_API_KEY
-  TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+Motorul nu mai are un singur client fixat în GitHub Secrets. Rulează pentru
+TOȚI clienții activi din panou: pentru fiecare, `config.aplica(client)` pune
+în `config` cheile și preferințele acelui client, apoi restul codului merge
+neschimbat (toate modulele au `from config import config`, deci văd aceleași
+valori).
+
+În Secrets rămân doar două lucruri, ale panoului:
+  PANEL_URL   adresa panoului MOON Post (ex. https://post.moonchat.ro)
+  CRON_KEY    cheia cu care intră motorul (aceeași valoare ca secretul din worker)
 """
 import os
 
-def _req(name: str) -> str:
-    val = os.environ.get(name, "").strip()
-    if not val:
-        raise RuntimeError(f"Lipsește variabila de mediu obligatorie: {name}")
-    return val
 
 def _opt(name: str, default: str = "") -> str:
-    # GitHub Actions trimite variabilele nesetate ca string gol, nu lipsă —
-    # tratăm string gol la fel ca "nesetat", altfel valorile implicite
-    # (ex. AUTO_PUBLISH_AFTER_HOURS) nu s-ar mai aplica niciodată din Actions.
+    # Actions trimite variabilele nesetate ca string gol, nu lipsă
     val = os.environ.get(name, "").strip()
     return val if val else default
 
 
 class Config:
-    # --- WordPress ---
-    WP_URL = _opt("WP_URL", "https://themoonagency.ro")
-    WP_USER = _opt("WP_USER", "MOON")
-    WP_APP_PASSWORD = _opt("WP_APP_PASSWORD")  # application password, nu parola de login
+    # --- panoul (singurele valori din mediu) ---
+    PANEL_URL = _opt("PANEL_URL").rstrip("/")
+    CRON_KEY = _opt("CRON_KEY")
 
-    # --- Meta (Facebook + Instagram) ---
-    META_SYSTEM_USER_TOKEN = _opt("META_SYSTEM_USER_TOKEN")
-    META_PAGE_ID = _opt("META_PAGE_ID", "104878805077409")
-    META_IG_ID = _opt("META_IG_ID", "17841447599150600")
-    META_GRAPH_VERSION = _opt("META_GRAPH_VERSION", "v21.0")
+    # --- clientul curent (completate de aplica()) ---
+    CLIENT_ID = 0
+    CLIENT_SLUG = ""
+    CLIENT_NAME = ""
+    CLIENT_DOMAIN = ""
+    CLIENT_NICHE = ""
+    CLIENT_TONE = "expert, direct, fără fraze de umplutură, dar prietenos"
+    CLIENT_SUBIECTE = ""
+    CLIENT_CTA = ""
+    FLUX = "autoritate"
 
-    # --- Gemini (generare text) ---
-    GEMINI_API_KEY = _opt("GEMINI_API_KEY")
-    GEMINI_MODEL = _opt("GEMINI_MODEL", "gemini-3.6-flash")
+    WP_URL = ""
+    WP_USER = ""
+    WP_APP_PASSWORD = ""
 
-    # --- OpenAI (generare imagini) ---
-    OPENAI_API_KEY = _opt("OPENAI_API_KEY")
-    OPENAI_IMAGE_MODEL = _opt("OPENAI_IMAGE_MODEL", "gpt-image-1")
+    META_SYSTEM_USER_TOKEN = ""
+    META_PAGE_ID = ""
+    META_IG_ID = ""
+    META_GRAPH_VERSION = "v21.0"
 
-    # --- Telegram (aprobare) ---
-    TELEGRAM_BOT_TOKEN = _opt("TELEGRAM_BOT_TOKEN")
-    TELEGRAM_CHAT_ID = _opt("TELEGRAM_CHAT_ID", "895952654")
+    GEMINI_API_KEY = ""
+    GEMINI_MODEL = "gemini-3.6-flash"
 
-    # --- Comportament ---
-    # Client pentru care rulăm ACUM (identifică state-ul și tonul de voce).
-    # Faza 1 = "the-moon-agency" (flux "autoritate", fără catalog).
-    CLIENT_SLUG = _opt("CLIENT_SLUG", "the-moon-agency")
-    CLIENT_NAME = _opt("CLIENT_NAME", "THE MOON Agency")
-    CLIENT_DOMAIN = _opt("CLIENT_DOMAIN", "themoonagency.ro")
-    CLIENT_NICHE = _opt(
-        "CLIENT_NICHE",
-        "marketing digital, reclame Google/Meta/TikTok, automatizări AI pentru agenții și magazine online",
-    )
-    CLIENT_TONE = _opt("CLIENT_TONE", "expert, direct, fără fraze de umplutură, dar prietenos")
+    OPENAI_API_KEY = ""
+    OPENAI_IMAGE_MODEL = "gpt-image-1"
 
-    # Fereastra de auto-aprobare: dacă nimeni nu răspunde pe Telegram în
-    # atâtea ore, ciornă rămâne NEpublicată (mai sigur la început) — se
-    # schimbă în True după ce validăm calitatea câteva săptămâni.
-    AUTO_PUBLISH_IF_NO_RESPONSE = _opt("AUTO_PUBLISH_IF_NO_RESPONSE", "false").lower() == "true"
-    AUTO_PUBLISH_AFTER_HOURS = int(_opt("AUTO_PUBLISH_AFTER_HOURS", "6"))
+    TELEGRAM_BOT_TOKEN = ""
+    TELEGRAM_CHAT_ID = ""
 
-    STATE_DIR = os.path.join(os.path.dirname(__file__), "state")
-    DRAFTS_FILE = os.path.join(STATE_DIR, f"drafts_{CLIENT_SLUG}.json")
-    TOPICS_FILE = os.path.join(STATE_DIR, f"topics_{CLIENT_SLUG}.json")
+    # --- Google Business Profile ---
+    GOOGLE_CLIENT_ID = ""       # aplicatia noastra, din panou
+    GOOGLE_CLIENT_SECRET = ""
+    GBP_REFRESH_TOKEN = ""      # tokenul clientului
+    GBP_LOCATION = ""           # locations/1234567890
+
+    # slotul de program pentru care rulăm acum (vine de la panou)
+    SLOT = 0
+    CANALE = ["wp"]
+    LOGO_URL = ""          # logoul clientului, suprapus pe imaginile generate
+
+    def aplica(self, client: dict) -> None:
+        """Încarcă în config un client venit de la panou (/api/cron/clients)."""
+        c = client.get("config") or {}
+        self.CLIENT_ID = client.get("id")
+        self.CLIENT_SLUG = client.get("slug") or ""
+        self.CLIENT_NAME = client.get("nume") or ""
+        self.CLIENT_DOMAIN = client.get("domeniu") or ""
+        self.FLUX = client.get("flux") or "autoritate"
+
+        self.CLIENT_NICHE = c.get("nisa") or ""
+        self.CLIENT_TONE = c.get("ton") or Config.CLIENT_TONE
+        self.CLIENT_SUBIECTE = c.get("subiecte") or ""
+        self.CLIENT_CTA = c.get("cta") or ""
+
+        self.WP_URL = (c.get("wp_url") or "").rstrip("/")
+        self.WP_USER = c.get("wp_user") or ""
+        self.WP_APP_PASSWORD = c.get("wp_app_password") or ""
+
+        self.META_SYSTEM_USER_TOKEN = c.get("meta_token") or ""
+        self.META_PAGE_ID = c.get("meta_page_id") or ""
+        self.META_IG_ID = c.get("meta_ig_id") or ""
+        self.META_GRAPH_VERSION = c.get("meta_graph") or Config.META_GRAPH_VERSION
+
+        self.GEMINI_API_KEY = c.get("gemini_key") or ""
+        self.GEMINI_MODEL = c.get("gemini_model") or Config.GEMINI_MODEL
+
+        self.OPENAI_API_KEY = c.get("openai_key") or ""
+        self.OPENAI_IMAGE_MODEL = c.get("openai_model") or Config.OPENAI_IMAGE_MODEL
+
+        self.TELEGRAM_BOT_TOKEN = c.get("telegram_bot_token") or ""
+        self.TELEGRAM_CHAT_ID = c.get("telegram_chat_id") or ""
+
+        self.GOOGLE_CLIENT_ID = c.get("google_client_id") or ""
+        self.GOOGLE_CLIENT_SECRET = c.get("google_client_secret") or ""
+        self.GBP_REFRESH_TOKEN = c.get("gbp_refresh_token") or ""
+        self.GBP_LOCATION = c.get("gbp_location") or ""
+
+        # panoul spune ce slot e scadent și pe ce canale merge postarea asta
+        self.SLOT = int(client.get("slot") or 0)
+        self.CANALE = list(client.get("canale") or ["wp"])
+        self.LOGO_URL = c.get("logo_url") or ""
+
+    def lipsuri_generare(self) -> list[str]:
+        lipsa = []
+        if not self.GEMINI_API_KEY:
+            lipsa.append("cheia Gemini")
+        if not self.OPENAI_API_KEY:
+            lipsa.append("cheia OpenAI")
+        return lipsa
+
+    def lipsuri_publicare(self) -> list[str]:
+        lipsa = []
+        if not (self.WP_URL and self.WP_USER and self.WP_APP_PASSWORD):
+            lipsa.append("datele de WordPress (atenție: parolă de APLICAȚIE, nu cea de login)")
+        return lipsa
 
 
 config = Config()

@@ -1,163 +1,142 @@
 """
-Rulare frecventă (cron la 15 min): citește răspunsurile de pe Telegram
-(click pe "Aprobă"/"Respinge") și publică ciornele aprobate pe WordPress
-+ Facebook + Instagram. Marchează ciornele expirate (peste
-AUTO_PUBLISH_AFTER_HOURS) conform config.AUTO_PUBLISH_IF_NO_RESPONSE.
+Rulare la 5 minute: ia din panou ciornele APROBATE (de om, din panou) și le
+publică pe WordPress + Facebook + Instagram, apoi scrie rezultatul înapoi în
+panou.
 
-Offset-ul de Telegram (ca să nu recitim aceleași mesaje) se ține într-un
-fișier separat de stare, comis înapoi în repo de workflow.
+Nu mai citește Telegram și nu mai ține offset — aprobarea se face în panou.
+Publicarea forțată nu mai are nevoie de un input de workflow: se apasă
+„Aprobă" pe ciorna respectivă.
 """
-import json
-import os
 import traceback
-from datetime import datetime, timezone
 
+import requests
+
+import panel
 from config import config
-from state import get_draft, update_draft, pending_drafts
-from telegram_bot import get_updates, answer_callback, send_notice
-from publishers import wordpress, meta
-
-OFFSET_FILE = os.path.join(config.STATE_DIR, "telegram_offset.json")
+from publishers import gbp, meta, wordpress
+import telegram_bot as tg
 
 
-def _load_offset() -> int | None:
-    if not os.path.exists(OFFSET_FILE):
+def _imagine_ciorna(ciorna: dict) -> bytes | None:
+    """Imaginea stă în panou (R2). O luăm de acolo, nu o regenerăm — ar costa
+    din nou și ar ieși altceva decât ce a aprobat omul."""
+    cheie = ciorna.get("imagine_key")
+    if not ciorna.get("are_imagine") or not cheie or not config.PANEL_URL:
         return None
-    with open(OFFSET_FILE, "r", encoding="utf-8") as f:
-        return json.load(f).get("offset")
+    try:
+        r = requests.get(f"{config.PANEL_URL}/img/{cheie}", timeout=60)
+        if r.status_code < 400 and len(r.content) > 100:
+            return r.content
+    except requests.RequestException:
+        pass
+    return None
 
 
-def _save_offset(offset: int) -> None:
-    os.makedirs(config.STATE_DIR, exist_ok=True)
-    with open(OFFSET_FILE, "w", encoding="utf-8") as f:
-        json.dump({"offset": offset}, f)
+def publica(ciorna: dict) -> None:
+    draft_id = ciorna["id"]
+    print(f"  public {draft_id}: {ciorna.get('seo_title')}")
 
-
-def _image_path(draft_id: str) -> str:
-    return f"{config.STATE_DIR}/img_{draft_id}.jpg"
-
-
-def publish_draft(draft_id: str) -> None:
-    draft = get_draft(draft_id)
-    if not draft:
-        send_notice(f"⚠️ Ciorna {draft_id} nu a fost găsită (poate a fost deja procesată).")
+    lipsa = config.lipsuri_publicare()
+    if lipsa:
+        panel.actualizeaza(draft_id, stare="eroare", eroare="Lipsesc " + ", ".join(lipsa))
         return
 
-    image_bytes = None
-    img_path = _image_path(draft_id)
-    if os.path.exists(img_path):
-        with open(img_path, "rb") as f:
-            image_bytes = f.read()
+    imagine = _imagine_ciorna(ciorna)
 
     try:
-        wp_result = wordpress.publish_article(
-            title=draft["seo_title"],
-            html_content=draft["article_html"],
-            meta_description=draft["meta_description"],
-            image_bytes=image_bytes,
+        wp = wordpress.publish_article(
+            title=ciorna["seo_title"],
+            html_content=ciorna["article_html"],
+            meta_description=ciorna.get("meta_description") or "",
+            image_bytes=imagine,
         )
-    except Exception as e:
-        send_notice(f"❌ Publicare WordPress eșuată pentru ciorna {draft_id}:\n`{e}`")
+    except Exception as e:  # noqa: BLE001
         traceback.print_exc()
+        panel.actualizeaza(draft_id, stare="eroare", eroare=f"WordPress: {str(e)[:400]}")
+        tg.anunta(f"❌ *MOON Post* — publicare WordPress eșuată ({config.CLIENT_NAME}):\n`{str(e)[:300]}`")
         return
 
-    fb_result = ig_result = None
-    image_url = wp_result.get("image_url")
+    rezultat = {"wp_link": wp.get("link")}
+    note = []
+    image_url = wp.get("image_url")
 
-    if image_url:
+    # canalele alese în programul clientului pentru slotul ăsta
+    canale = [c for c in str(ciorna.get("canale") or "wp").split(",") if c]
+
+    # --- Facebook ---
+    if "fb" in canale:
         try:
-            fb_result = meta.publish_facebook_photo(image_url, draft["facebook_text"])
-        except Exception as e:
-            send_notice(f"⚠️ Publicare Facebook eșuată (articolul TOT a mers pe WordPress):\n`{e}`")
+            if image_url:
+                fb = meta.publish_facebook_photo(image_url, ciorna.get("facebook_text") or "")
+            else:
+                # fără imagine, postăm link către articol — înainte, Facebook se sărea tăcut
+                fb = meta.publish_facebook_link(wp.get("link"), ciorna.get("facebook_text") or "")
+                note.append("Facebook: postare cu link, fără imagine.")
+            rezultat["fb_link"] = fb.get("permalink_url")
+        except Exception as e:  # noqa: BLE001
             traceback.print_exc()
+            note.append(f"Facebook a eșuat: {str(e)[:200]}")
 
+    # --- Instagram (are nevoie obligatoriu de o imagine publică) ---
+    if "ig" in canale:
+        if not image_url:
+            note.append("Instagram sărit: nu există imagine, iar Instagram nu acceptă postări fără imagine.")
+        else:
+            try:
+                ig = meta.publish_instagram_photo(image_url, ciorna.get("instagram_text") or "")
+                rezultat["ig_link"] = ig.get("permalink_url")
+            except Exception as e:  # noqa: BLE001
+                traceback.print_exc()
+                note.append(f"Instagram a eșuat: {str(e)[:200]}")
+
+    # --- Profilul Google ---
+    if "gbp" in canale:
         try:
-            ig_result = meta.publish_instagram_photo(image_url, draft["instagram_text"])
-        except Exception as e:
-            send_notice(f"⚠️ Publicare Instagram eșuată (articolul TOT a mers pe WordPress):\n`{e}`")
+            g = gbp.publish_local_post(
+                text=ciorna.get("facebook_text") or ciorna.get("seo_title") or "",
+                link=wp.get("link"),
+                image_url=image_url,
+            )
+            rezultat["gbp_link"] = g.get("permalink_url")
+        except Exception as e:  # noqa: BLE001
             traceback.print_exc()
-    else:
-        send_notice("⚠️ Nu există imagine — s-a publicat doar articolul, fără Facebook/Instagram.")
+            note.append(f"Profilul Google a eșuat: {str(e)[:200]}")
 
-    update_draft(
-        draft_id,
-        status="published",
-        wp_link=wp_result.get("link"),
-        fb_post_id=(fb_result or {}).get("post_id"),
-        fb_link=(fb_result or {}).get("permalink_url"),
-        ig_media_id=(ig_result or {}).get("id"),
-        ig_link=(ig_result or {}).get("permalink_url"),
+    panel.actualizeaza(draft_id, stare="publicat", rezultat=rezultat,
+                       eroare="; ".join(note) if note else None)
+
+    tg.anunta(
+        f"✅ *Publicat — {config.CLIENT_NAME}*\n*{ciorna.get('seo_title')}*\n"
+        f"Articol: {rezultat.get('wp_link') or '—'}\n"
+        f"Facebook: {rezultat.get('fb_link') or 'lipsă'}\n"
+        f"Instagram: {rezultat.get('ig_link') or 'lipsă'}"
+        + (f"\nProfil Google: {rezultat.get('gbp_link') or 'lipsă'}" if "gbp" in canale else "")
+        + (("\n⚠️ " + "; ".join(note)) if note else "")
     )
-
-    if os.path.exists(img_path):
-        os.remove(img_path)
-
-    fb_line = fb_result.get("permalink_url") if fb_result else "eșuat/lipsă (vezi mesajul de mai sus)"
-    ig_line = ig_result.get("permalink_url") if ig_result else "eșuat/lipsă (vezi mesajul de mai sus)"
-    send_notice(
-        f"✅ Publicat: *{draft['seo_title']}*\n"
-        f"WordPress: {wp_result.get('link')}\n"
-        f"Facebook: {fb_line}\n"
-        f"Instagram: {ig_line}"
-    )
-
-
-def process_telegram_updates() -> None:
-    offset = _load_offset()
-    updates = get_updates(offset=offset)
-    print(f"[telegram] offset={offset} -> {len(updates)} update(s) primite")
-
-    for update in updates:
-        print(f"[telegram] update_id={update['update_id']} keys={list(update.keys())}")
-        _save_offset(update["update_id"] + 1)
-
-        callback = update.get("callback_query")
-        if not callback:
-            continue
-
-        data = callback.get("data", "")
-        print(f"[telegram] callback data={data!r}")
-        if ":" not in data:
-            continue
-        action, draft_id = data.split(":", 1)
-
-        if action == "approve":
-            answer_callback(callback["id"], "Se publică...")
-            update_draft(draft_id, status="approved")
-            publish_draft(draft_id)
-        elif action == "reject":
-            answer_callback(callback["id"], "Respinsă.")
-            update_draft(draft_id, status="rejected")
-            send_notice(f"🗑️ Ciorna {draft_id} a fost respinsă, nu se publică.")
-
-
-def process_auto_publish_timeouts() -> None:
-    if not config.AUTO_PUBLISH_IF_NO_RESPONSE:
-        return
-    now = datetime.now(timezone.utc)
-    for draft in pending_drafts():
-        created = datetime.fromisoformat(draft["created_at"])
-        age_hours = (now - created).total_seconds() / 3600
-        if age_hours >= config.AUTO_PUBLISH_AFTER_HOURS:
-            send_notice(f"⏰ Ciorna {draft['id']} nu a primit răspuns în {config.AUTO_PUBLISH_AFTER_HOURS}h — publicare automată.")
-            update_draft(draft["id"], status="approved")
-            publish_draft(draft["id"])
 
 
 def main() -> None:
-    # Supapă manuală de urgență: dacă FORCE_DRAFT_ID e setat (din
-    # workflow_dispatch input), publică direct acel draft, indiferent de
-    # starea din Telegram — util când răspunsul de pe Telegram s-a pierdut
-    # sau nu a fost procesat dintr-un motiv neclar.
-    force_id = os.environ.get("FORCE_DRAFT_ID", "").strip()
-    if force_id:
-        print(f"[force] publicare fortata pentru draft {force_id}")
-        update_draft(force_id, status="approved")
-        publish_draft(force_id)
+    aprobate = panel.ciorne(stare="aprobat")
+    if not aprobate:
+        print("Nicio ciornă aprobată.")
         return
 
-    process_telegram_updates()
-    process_auto_publish_timeouts()
+    # cheile sunt ale clientului -> le încărcăm o dată per client
+    dupa_id = {c["id"]: c for c in panel.clienti()}
+    print(f"{len(aprobate)} ciornă/ciorne de publicat.")
+
+    for ciorna in aprobate:
+        client = dupa_id.get(ciorna["client_id"])
+        if not client:
+            panel.actualizeaza(ciorna["id"], stare="eroare",
+                               eroare="Clientul e oprit sau suspendat — nu se publică.")
+            continue
+        config.aplica(client)
+        try:
+            publica(ciorna)
+        except Exception as e:  # noqa: BLE001 — o ciornă căzută nu oprește restul
+            traceback.print_exc()
+            panel.actualizeaza(ciorna["id"], stare="eroare", eroare=str(e)[:400])
 
 
 if __name__ == "__main__":

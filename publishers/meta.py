@@ -13,7 +13,9 @@ import requests
 
 from config import config
 
-GRAPH = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}"
+def _graph() -> str:
+    # se calculeaza la fiecare apel: versiunea vine din contul clientului curent
+    return f"https://graph.facebook.com/{config.META_GRAPH_VERSION}"
 
 
 def _raise_with_body(resp: requests.Response) -> None:
@@ -29,7 +31,7 @@ def _raise_with_body(resp: requests.Response) -> None:
 
 def _page_access_token() -> str:
     """System User token -> page access token (necesar pt. postare pe Pagină)."""
-    url = f"{GRAPH}/{config.META_PAGE_ID}"
+    url = f"{_graph()}/{config.META_PAGE_ID}"
     resp = requests.get(url, params={
         "fields": "access_token",
         "access_token": config.META_SYSTEM_USER_TOKEN,
@@ -40,7 +42,7 @@ def _page_access_token() -> str:
 
 def publish_facebook_photo(image_url: str, message: str) -> dict:
     page_token = _page_access_token()
-    url = f"{GRAPH}/{config.META_PAGE_ID}/photos"
+    url = f"{_graph()}/{config.META_PAGE_ID}/photos"
     resp = requests.post(url, data={
         "url": image_url,
         "caption": message,
@@ -54,7 +56,7 @@ def publish_facebook_photo(image_url: str, message: str) -> dict:
     post_id = result.get("post_id")
     if post_id:
         try:
-            link_resp = requests.get(f"{GRAPH}/{post_id}", params={
+            link_resp = requests.get(f"{_graph()}/{post_id}", params={
                 "fields": "permalink_url",
                 "access_token": page_token,
             }, timeout=30)
@@ -70,7 +72,7 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
     page_token = _page_access_token()
 
     # Pas 1: creează containerul media
-    create_url = f"{GRAPH}/{config.META_IG_ID}/media"
+    create_url = f"{_graph()}/{config.META_IG_ID}/media"
     resp = requests.post(create_url, data={
         "image_url": image_url,
         "caption": caption,
@@ -80,7 +82,7 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
     creation_id = resp.json()["id"]
 
     # Pas 2: așteaptă ca Instagram să proceseze imaginea
-    status_url = f"{GRAPH}/{creation_id}"
+    status_url = f"{_graph()}/{creation_id}"
     for _ in range(max_polls):
         status_resp = requests.get(status_url, params={
             "fields": "status_code",
@@ -95,7 +97,7 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
         raise RuntimeError("Instagram nu a terminat procesarea imaginii la timp.")
 
     # Pas 3: publică
-    publish_url = f"{GRAPH}/{config.META_IG_ID}/media_publish"
+    publish_url = f"{_graph()}/{config.META_IG_ID}/media_publish"
     publish_resp = requests.post(publish_url, data={
         "creation_id": creation_id,
         "access_token": page_token,
@@ -108,7 +110,7 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
     media_id = result.get("id")
     if media_id:
         try:
-            link_resp = requests.get(f"{GRAPH}/{media_id}", params={
+            link_resp = requests.get(f"{_graph()}/{media_id}", params={
                 "fields": "permalink",
                 "access_token": page_token,
             }, timeout=30)
@@ -117,4 +119,29 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
         except requests.RequestException:
             pass
 
+    return result
+
+
+def publish_facebook_link(link: str, message: str) -> dict:
+    """Postare pe Pagină FĂRĂ imagine: mesaj + link către articol.
+    Fără asta, o ciornă fără imagine se publica doar pe WordPress, iar
+    Facebook se sărea tăcut."""
+    page_token = _page_access_token()
+    resp = requests.post(f"{_graph()}/{config.META_PAGE_ID}/feed", data={
+        "message": message,
+        "link": link,
+        "access_token": page_token,
+    }, timeout=60)
+    _raise_with_body(resp)
+    result = resp.json()
+    post_id = result.get("id")
+    if post_id:
+        try:
+            link_resp = requests.get(f"{_graph()}/{post_id}", params={
+                "fields": "permalink_url", "access_token": page_token,
+            }, timeout=30)
+            if link_resp.status_code < 400:
+                result["permalink_url"] = link_resp.json().get("permalink_url")
+        except requests.RequestException:
+            pass
     return result

@@ -1,16 +1,24 @@
-name: Moon Content - Generare zilnică
+name: MOON Post - Generare
 
 on:
   schedule:
-    # 08:00 România (ora de vară, UTC+3) = 05:00 UTC. Ajustează dacă e nevoie.
-    - cron: "0 5 * * *"
-  workflow_dispatch: {}  # permite rulare manuală din tab-ul Actions
+    # din oră în oră; panoul spune cine are postare scadentă acum
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      client_id:
+        description: "ID de client (gol = toți cei scadenți acum)"
+        required: false
+        type: string
+      forteaza:
+        description: "Ignoră programul și generează oricum (da/nu)"
+        required: false
+        default: "nu"
+        type: string
 
 jobs:
   generate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -20,31 +28,12 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Generează ciorna și trimite spre aprobare
+      # Toate cheile clienților vin din panou. În Secrets rămân doar cele două
+      # ale panoului — nimic nu se mai comite înapoi în repo.
+      - name: Generează ciornele scadente
         env:
-          WP_URL: ${{ secrets.WP_URL }}
-          WP_USER: ${{ secrets.WP_USER }}
-          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
-          META_SYSTEM_USER_TOKEN: ${{ secrets.META_SYSTEM_USER_TOKEN }}
-          META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
-          META_IG_ID: ${{ secrets.META_IG_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PANEL_URL: ${{ secrets.PANEL_URL }}
+          CRON_KEY: ${{ secrets.CRON_KEY }}
+          CLIENT_ID: ${{ inputs.client_id }}
+          FORTEAZA: ${{ inputs.forteaza }}
         run: python generate_draft.py
-
-      - name: Actualizează panoul de control
-        env:
-          WP_URL: ${{ secrets.WP_URL }}
-          WP_USER: ${{ secrets.WP_USER }}
-          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
-        run: python dashboard.py
-
-      - name: Salvează starea (ciorne + imagine temporară)
-        run: |
-          git config user.name "moon-content-bot"
-          git config user.email "moon-content-bot@users.noreply.github.com"
-          git add state/
-          git diff --cached --quiet || git commit -m "Ciornă nouă $(date -u +%F)"
-          git push

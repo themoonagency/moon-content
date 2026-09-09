@@ -1,79 +1,74 @@
 """
-Trimite ciorna pe Telegram pentru aprobare, cu butoane inline
-"✅ Aprobă" / "❌ Respinge". Răspunsul (callback_query) e citit separat,
-în check_approvals.py, care rulează pe alt cron (la 15 min).
+Telegram — canal SECUNDAR de anunțuri. Aprobarea se face în panoul MOON Post.
+
+Înainte, butoanele „Aprobă"/„Respinge" din Telegram erau singura cale, iar
+răspunsul se citea cu getUpdates, ținând un offset într-un fișier comis în
+repo. La mai mulți clienți asta nu mai merge (un singur bot, un singur offset,
+stare partajată). Acum Telegram doar anunță și dă un buton care duce în panou,
+unde ciorna se vede întreagă și se poate corecta înainte de aprobare.
+
+Dacă un client nu și-a pus bot, se sare tăcut peste el.
 """
 import json
 import requests
 
 from config import config
 
-API = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}"
+
+def _api() -> str:
+    return f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}"
 
 
-def send_for_approval(draft_id: str, title: str, article_preview: str,
-                       facebook_text: str, instagram_text: str,
-                       image_bytes: bytes | None) -> None:
+def activ() -> bool:
+    return bool(config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID)
+
+
+def _link_panou(draft_id: str) -> str:
+    return f"{config.PANEL_URL}/admin#ciorna-{draft_id}" if config.PANEL_URL else ""
+
+
+def anunta_ciorna(draft_id: str, title: str, facebook_text: str,
+                  instagram_text: str, image_bytes: bytes | None,
+                  avertisment: str = "") -> None:
+    """Anunță ciorna nouă. Butonul duce în panou, unde se aprobă."""
+    if not activ():
+        return
     caption = (
         f"📝 *Ciornă nouă — {config.CLIENT_NAME}*\n\n"
         f"*Titlu:* {title}\n\n"
         f"*Facebook:*\n{facebook_text}\n\n"
-        f"*Instagram:*\n{instagram_text}\n\n"
-        f"_Articol complet: {len(article_preview)} caractere — vezi WordPress după aprobare._"
+        f"*Instagram:*\n{instagram_text}"
     )
-    keyboard = {
-        "inline_keyboard": [[
-            {"text": "✅ Aprobă și publică", "callback_data": f"approve:{draft_id}"},
-            {"text": "❌ Respinge", "callback_data": f"reject:{draft_id}"},
-        ]]
-    }
+    if avertisment:
+        caption += f"\n\n⚠️ {avertisment}"
+    caption += "\n\n_Se aprobă din panou._"
 
-    if image_bytes:
-        resp = requests.post(
-            f"{API}/sendPhoto",
-            data={
-                "chat_id": config.TELEGRAM_CHAT_ID,
-                "caption": caption[:1024],  # limita Telegram pt. caption
-                "parse_mode": "Markdown",
-                "reply_markup": json.dumps(keyboard),
-            },
-            files={"photo": ("preview.jpg", image_bytes, "image/jpeg")},
-            timeout=60,
-        )
-    else:
-        resp = requests.post(
-            f"{API}/sendMessage",
-            data={
-                "chat_id": config.TELEGRAM_CHAT_ID,
-                "text": caption,
-                "parse_mode": "Markdown",
-                "reply_markup": json.dumps(keyboard),
-            },
-            timeout=30,
-        )
-    resp.raise_for_status()
+    link = _link_panou(draft_id)
+    reply = json.dumps({"inline_keyboard": [[{"text": "Deschide în panou", "url": link}]]}) if link else None
+
+    date = {"chat_id": config.TELEGRAM_CHAT_ID, "parse_mode": "Markdown"}
+    if reply:
+        date["reply_markup"] = reply
+    try:
+        if image_bytes:
+            date["caption"] = caption[:1024]
+            requests.post(f"{_api()}/sendPhoto", data=date,
+                          files={"photo": ("previzualizare.jpg", image_bytes, "image/jpeg")}, timeout=60)
+        else:
+            date["text"] = caption[:4000]
+            requests.post(f"{_api()}/sendMessage", data=date, timeout=30)
+    except requests.RequestException:
+        pass  # un anunț ratat nu blochează fluxul
 
 
-def send_notice(text: str) -> None:
-    """Mesaj simplu, fără butoane — pt. confirmări/erori."""
-    requests.post(f"{API}/sendMessage", data={
-        "chat_id": config.TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown",
-    }, timeout=30)
-
-
-def get_updates(offset: int | None = None) -> list[dict]:
-    params = {"timeout": 5}
-    if offset is not None:
-        params["offset"] = offset
-    resp = requests.get(f"{API}/getUpdates", params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json().get("result", [])
-
-
-def answer_callback(callback_query_id: str, text: str) -> None:
-    requests.post(f"{API}/answerCallbackQuery", data={
-        "callback_query_id": callback_query_id,
-        "text": text,
-    }, timeout=15)
+def anunta(text: str) -> None:
+    """Mesaj scurt (publicat / eroare). Nu ridică niciodată excepție."""
+    if not activ():
+        return
+    try:
+        requests.post(f"{_api()}/sendMessage", data={
+            "chat_id": config.TELEGRAM_CHAT_ID, "text": text[:4000], "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }, timeout=30)
+    except requests.RequestException:
+        pass
