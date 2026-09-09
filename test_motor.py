@@ -5,6 +5,8 @@ pe doi clienți, inclusiv cazul „fără imagine".
 
 Rulează:  python test_motor.py
 """
+
+from __future__ import annotations
 import base64
 import io
 import json
@@ -50,6 +52,7 @@ PANOU = {
     "drafts": {}, "imagini": {}, "topics": {"1": ["Subiect vechi"]},
 }
 APELURI = []
+BLOG_API = []
 IMAGINE_PICA = False
 
 
@@ -137,6 +140,13 @@ def fals_request(metoda, url, **kw):
         return Raspuns({"id": 55, "source_url": "https://themoonagency.ro/wp/poza.jpg"})
     if "/wp-json/wp/v2/posts" in url:
         return Raspuns({"id": 99, "link": "https://themoonagency.ro/articol-de-test/"})
+
+    # --- blog pe API propriu ---
+    if url.endswith("/api/blog"):
+        if metoda == "GET":
+            return Raspuns([{"title": "Articol deja pe site", "slug": "articol-deja-pe-site"}])
+        BLOG_API.append(corp)
+        return Raspuns({"ok": True, "slug": "titlu-seo-de-test", "url": "/blog/titlu-seo-de-test"})
 
     # --- Google Business Profile ---
     if "oauth2.googleapis.com" in url:
@@ -360,6 +370,42 @@ except SystemExit:
     pass
 cer(len(PANOU["drafts"]) == 0, "fara produs la rand, nu se genereaza nimic")
 PANOU["clienti"][0]["flux"] = "autoritate"
+
+# 11. blog pe API propriu, in loc de WordPress
+PANOU["clienti"][0]["config"].update({
+    "blog_api_url": "https://themoonagency.ro/api/blog", "blog_api_token": "token-de-test"})
+PANOU["drafts"].clear(); APELURI.clear(); BLOG_API.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d9 = list(PANOU["drafts"].values())[0]
+cer(any(u.endswith("/api/blog") for m, u in APELURI if m == "GET"),
+    "anti-duplicat: se citesc articolele deja publicate pe blogul propriu")
+
+d9["stare"] = "aprobat"
+APELURI.clear()
+check_approvals.main()
+cer(d9["stare"] == "publicat", "ciorna se publica prin API-ul propriu", d9.get("stare"))
+cer(len(BLOG_API) == 1, "s-a trimis exact un articol", len(BLOG_API))
+trimis = BLOG_API[0]
+cer(trimis["title"] == "Titlu SEO de test" and trimis["content"].startswith("<"),
+    "articolul pleaca cu titlu si HTML")
+cer(str(trimis.get("image", "")).startswith("https://"),
+    "imaginea pleaca ca adresa publica, nu ca fisier", trimis.get("image"))
+cer(d9["rezultat"]["wp_link"] == "https://themoonagency.ro/blog/titlu-seo-de-test",
+    "linkul relativ e completat cu domeniul", d9["rezultat"].get("wp_link"))
+cer(not any("/wp-json/" in u for _, u in APELURI),
+    "cu API propriu nu se mai atinge WordPress")
+cer(any(u.endswith("/photos") for _, u in APELURI), "Facebook merge si pe fluxul cu API propriu")
+
+# fara token, se cere completarea datelor de blog
+PANOU["clienti"][0]["config"].pop("blog_api_token")
+PANOU["clienti"][0]["config"].pop("wp_app_password")
+config.aplica(PANOU["clienti"][0])
+cer(len(config.lipsuri_publicare()) == 1 and "blog" in config.lipsuri_publicare()[0].lower(),
+    "fara WordPress si fara API propriu, publicarea se opreste cu mesaj clar",
+    config.lipsuri_publicare())
 
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)

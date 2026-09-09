@@ -9,6 +9,8 @@ unde ciorna se vede întreagă și se poate corecta înainte de aprobare.
 
 Dacă un client nu și-a pus bot, se sare tăcut peste el.
 """
+
+from __future__ import annotations
 import json
 import requests
 

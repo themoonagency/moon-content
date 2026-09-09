@@ -13,6 +13,8 @@ Pași:
 
 Returnează un dict gata de pus în draft (vezi state.save_draft).
 """
+
+from __future__ import annotations
 import json
 import re
 import time
@@ -169,6 +171,12 @@ def _call_gemini(payload: dict, max_retries: int = 4) -> dict:
 def generate_authority_draft() -> dict:
     CONSUM["tokens_in"] = CONSUM["tokens_out"] = 0
     used_topics = panel.subiecte_recente(config.CLIENT_ID, zile=45)
+    if config.BLOG_PE_API:
+        # blogul propriu isi stie articolele; le luam si pe alea, ca sa nu repetam
+        from publishers import blog_api
+        for t in blog_api.articole_existente():
+            if t not in used_topics:
+                used_topics.append(t)
     used_block = "\n".join(f"- {t}" for t in used_topics) or "(niciunul încă)"
 
     prompt = _system_prompt() + f"\n\nSubiecte tratate în ultimele 45 de zile (NU le relua):\n{used_block}\n"

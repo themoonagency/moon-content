@@ -7,13 +7,15 @@ Nu mai citește Telegram și nu mai ține offset — aprobarea se face în panou
 Publicarea forțată nu mai are nevoie de un input de workflow: se apasă
 „Aprobă" pe ciorna respectivă.
 """
+
+from __future__ import annotations
 import traceback
 
 import requests
 
 import panel
 from config import config
-from publishers import gbp, meta, wordpress
+from publishers import blog_api, gbp, meta, wordpress
 import telegram_bot as tg
 
 
@@ -43,17 +45,35 @@ def publica(ciorna: dict) -> None:
 
     imagine = _imagine_ciorna(ciorna)
 
+    # blogul e fie pe API propriu, fie pe WordPress
+    unde = "API propriu" if config.BLOG_PE_API else "WordPress"
     try:
-        wp = wordpress.publish_article(
-            title=ciorna["seo_title"],
-            html_content=ciorna["article_html"],
-            meta_description=ciorna.get("meta_description") or "",
-            image_bytes=imagine,
-        )
+        if config.BLOG_PE_API:
+            # imaginea e deja publica in panou (R2) — API-ul primeste adresa, nu octetii
+            cheie = ciorna.get("imagine_key")
+            adresa_img = (
+                f"{config.PANEL_URL}/img/{cheie}"
+                if (ciorna.get("are_imagine") and cheie and config.PANEL_URL)
+                else None
+            )
+            wp = blog_api.publish_article(
+                title=ciorna["seo_title"],
+                html_content=ciorna["article_html"],
+                meta_description=ciorna.get("meta_description") or "",
+                image_url=adresa_img,
+                tags=[t for t in str(ciorna.get("tags") or "").split(",") if t.strip()],
+            )
+        else:
+            wp = wordpress.publish_article(
+                title=ciorna["seo_title"],
+                html_content=ciorna["article_html"],
+                meta_description=ciorna.get("meta_description") or "",
+                image_bytes=imagine,
+            )
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
-        panel.actualizeaza(draft_id, stare="eroare", eroare=f"WordPress: {str(e)[:400]}")
-        tg.anunta(f"❌ *MOON Post* — publicare WordPress eșuată ({config.CLIENT_NAME}):\n`{str(e)[:300]}`")
+        panel.actualizeaza(draft_id, stare="eroare", eroare=f"Blog ({unde}): {str(e)[:400]}")
+        tg.anunta(f"❌ *MOON Post* — publicare blog ({unde}) eșuată ({config.CLIENT_NAME}):\n`{str(e)[:300]}`")
         return
 
     rezultat = {"wp_link": wp.get("link")}

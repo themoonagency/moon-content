@@ -11,6 +11,8 @@ valori).
   PANEL_URL   adresa panoului MOON Post (ex. https://post.moonchat.ro)
   CRON_KEY    cheia cu care intră motorul (aceeași valoare ca secretul din worker)
 """
+
+from __future__ import annotations
 import os
 
 
@@ -39,6 +41,10 @@ class Config:
     WP_URL = ""
     WP_USER = ""
     WP_APP_PASSWORD = ""
+
+    # blog pe API propriu (alternativa la WordPress; daca e completat, are prioritate)
+    BLOG_API_URL = ""
+    BLOG_API_TOKEN = ""
 
     META_SYSTEM_USER_TOKEN = ""
     META_PAGE_ID = ""
@@ -83,6 +89,9 @@ class Config:
         self.WP_USER = c.get("wp_user") or ""
         self.WP_APP_PASSWORD = c.get("wp_app_password") or ""
 
+        self.BLOG_API_URL = (c.get("blog_api_url") or "").rstrip("/")
+        self.BLOG_API_TOKEN = c.get("blog_api_token") or ""
+
         self.META_SYSTEM_USER_TOKEN = c.get("meta_token") or ""
         self.META_PAGE_ID = c.get("meta_page_id") or ""
         self.META_IG_ID = c.get("meta_ig_id") or ""
@@ -115,10 +124,18 @@ class Config:
             lipsa.append("cheia OpenAI")
         return lipsa
 
+    @property
+    def BLOG_PE_API(self) -> bool:
+        """Clientul are blog pe API propriu? Atunci nu mai trecem prin WordPress."""
+        return bool(self.BLOG_API_URL and self.BLOG_API_TOKEN)
+
     def lipsuri_publicare(self) -> list[str]:
         lipsa = []
+        if self.BLOG_PE_API:
+            return lipsa
         if not (self.WP_URL and self.WP_USER and self.WP_APP_PASSWORD):
-            lipsa.append("datele de WordPress (atenție: parolă de APLICAȚIE, nu cea de login)")
+            lipsa.append("datele blogului: fie WordPress (adresă, utilizator, parolă de APLICAȚIE), "
+                         "fie adresa și tokenul API-ului propriu")
         return lipsa
 
 

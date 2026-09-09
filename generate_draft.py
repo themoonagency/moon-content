@@ -8,6 +8,8 @@ Nu publică nimic. Nu scrie nimic în repo — toată starea stă în panou.
 
 Pornire manuală din panou: CLIENT_ID + FORTEAZA (workflow_dispatch).
 """
+
+from __future__ import annotations
 import os
 import sys
 import traceback

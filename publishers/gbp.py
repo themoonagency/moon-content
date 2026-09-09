@@ -10,6 +10,8 @@ Accesul la API se dă doar cu aprobare de la Google (cerere trimisă,
 Case ID 9-3978000041181). Până atunci codul stă aici, gata, dar canalul „gbp"
 pur și simplu nu e bifat în programul niciunui client.
 """
+
+from __future__ import annotations
 import requests
 
 from config import config

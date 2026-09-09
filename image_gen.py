@@ -5,6 +5,8 @@ colț — gata de trimis mai departe la WordPress / Meta / Telegram.
 Instagram Graph API acceptă strict JPEG pentru poze, respinge PNG cu o
 eroare vagă ("media URI doesn't meet our requirements").
 """
+
+from __future__ import annotations
 import base64
 import io
 import requests

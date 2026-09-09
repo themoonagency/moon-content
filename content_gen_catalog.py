@@ -6,6 +6,8 @@ numele, prețul, linkul și descrierea vin din catalogul sincronizat în panou, 
 panoul alege și ce produs urmează la rând (`client["produs"]`) — motorul doar
 scrie despre ce primește. Așa rotația și anti-repetiția stau într-un singur loc.
 """
+
+from __future__ import annotations
 import json
 
 from config import config

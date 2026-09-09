@@ -2,6 +2,8 @@
 Publicare pe WordPress prin REST API, cu Application Password (rol Autor
 e suficient — nu are nevoie de rol de Administrator).
 """
+
+from __future__ import annotations
 import requests
 from requests.auth import HTTPBasicAuth
 

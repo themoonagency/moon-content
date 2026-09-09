@@ -6,6 +6,8 @@ D1, în spatele panoului.
 
 Toate apelurile merg cu antetul X-Cron-Key.
 """
+
+from __future__ import annotations
 import requests
 
 from config import config
