@@ -45,6 +45,17 @@ def publica(ciorna: dict) -> None:
 
     imagine = _imagine_ciorna(ciorna)
 
+    # blogul se pune de mana: nu-l atingem, dar restul canalelor merg
+    if config.BLOG_MANUAL:
+        adresa_img = (
+            f"{config.PANEL_URL}/img/{ciorna.get('imagine_key')}"
+            if (ciorna.get("are_imagine") and ciorna.get("imagine_key") and config.PANEL_URL)
+            else None
+        )
+        wp = {"id": None, "link": "", "image_url": adresa_img}
+        _publica_social(ciorna, draft_id, wp, ["articolul se copiaza de mana in platforma clientului"])
+        return
+
     # blogul e fie pe API propriu, fie pe WordPress
     unde = "API propriu" if config.BLOG_PE_API else "WordPress"
     try:
@@ -76,8 +87,13 @@ def publica(ciorna: dict) -> None:
         tg.anunta(f"❌ *MOON Post* — publicare blog ({unde}) eșuată ({config.CLIENT_NAME}):\n`{str(e)[:300]}`")
         return
 
+    _publica_social(ciorna, draft_id, wp)
+
+
+def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[str] | None = None) -> None:
+    """Facebook / Instagram / Profil Google, dupa ce blogul e rezolvat (sau sarit)."""
     rezultat = {"wp_link": wp.get("link")}
-    note = []
+    note = list(note_initiale or [])
     image_url = wp.get("image_url")
 
     # canalele alese în programul clientului pentru slotul ăsta
@@ -88,11 +104,14 @@ def publica(ciorna: dict) -> None:
         try:
             if image_url:
                 fb = meta.publish_facebook_photo(image_url, ciorna.get("facebook_text") or "")
-            else:
+                rezultat["fb_link"] = fb.get("permalink_url")
+            elif wp.get("link"):
                 # fără imagine, postăm link către articol — înainte, Facebook se sărea tăcut
                 fb = meta.publish_facebook_link(wp.get("link"), ciorna.get("facebook_text") or "")
                 note.append("Facebook: postare cu link, fără imagine.")
-            rezultat["fb_link"] = fb.get("permalink_url")
+                rezultat["fb_link"] = fb.get("permalink_url")
+            else:
+                note.append("Facebook sărit: nu există nici imagine, nici link de articol.")
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
             note.append(f"Facebook a eșuat: {str(e)[:200]}")
@@ -114,7 +133,7 @@ def publica(ciorna: dict) -> None:
         try:
             g = gbp.publish_local_post(
                 text=ciorna.get("facebook_text") or ciorna.get("seo_title") or "",
-                link=wp.get("link"),
+                link=wp.get("link") or None,
                 image_url=image_url,
             )
             rezultat["gbp_link"] = g.get("permalink_url")

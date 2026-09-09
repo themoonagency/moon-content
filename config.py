@@ -42,7 +42,8 @@ class Config:
     WP_USER = ""
     WP_APP_PASSWORD = ""
 
-    # blog pe API propriu (alternativa la WordPress; daca e completat, are prioritate)
+    # unde sta blogul: "wp" | "api" | "manual" (platforme fara API de articole)
+    BLOG_TIP = ""
     BLOG_API_URL = ""
     BLOG_API_TOKEN = ""
 
@@ -93,6 +94,7 @@ class Config:
         self.WP_USER = c.get("wp_user") or ""
         self.WP_APP_PASSWORD = c.get("wp_app_password") or ""
 
+        self.BLOG_TIP = c.get("blog_tip") or ""
         self.BLOG_API_URL = (c.get("blog_api_url") or "").rstrip("/")
         self.BLOG_API_TOKEN = c.get("blog_api_token") or ""
 
@@ -131,13 +133,21 @@ class Config:
         return lipsa
 
     @property
+    def BLOG_MANUAL(self) -> bool:
+        """Blogul se pune de mana (ex. Gomag, care n-are API de articole).
+        Articolul ramane in panou, de unde se copiaza; restul canalelor merg."""
+        return self.BLOG_TIP == "manual"
+
+    @property
     def BLOG_PE_API(self) -> bool:
         """Clientul are blog pe API propriu? Atunci nu mai trecem prin WordPress."""
+        if self.BLOG_TIP in ("wp", "manual"):
+            return False
         return bool(self.BLOG_API_URL and self.BLOG_API_TOKEN)
 
     def lipsuri_publicare(self) -> list[str]:
         lipsa = []
-        if self.BLOG_PE_API:
+        if self.BLOG_PE_API or self.BLOG_MANUAL:
             return lipsa
         if not (self.WP_URL and self.WP_USER and self.WP_APP_PASSWORD):
             lipsa.append("datele blogului: fie WordPress (adresă, utilizator, parolă de APLICAȚIE), "

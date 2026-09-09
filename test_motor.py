@@ -407,5 +407,28 @@ cer(len(config.lipsuri_publicare()) == 1 and "blog" in config.lipsuri_publicare(
     "fara WordPress si fara API propriu, publicarea se opreste cu mesaj clar",
     config.lipsuri_publicare())
 
+# 12. blog manual (Gomag): articolul ramane in panou, Facebook merge
+PANOU["clienti"][0]["config"].update({"blog_tip": "manual",
+    "wp_url": "https://exemplu.ro", "wp_user": "MOON", "wp_app_password": "app-pass"})
+PANOU["clienti"][0]["canale"] = ["wp", "fb"]
+PANOU["drafts"].clear(); APELURI.clear(); BLOG_API.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d10 = list(PANOU["drafts"].values())[0]
+d10["stare"] = "aprobat"
+APELURI.clear()
+check_approvals.main()
+cer(d10["stare"] == "publicat", "cu blog manual, ciorna se publica pe restul canalelor", d10.get("stare"))
+cer(not any("/wp-json/" in u for _, u in APELURI) and not BLOG_API,
+    "blogul nu e atins deloc pe manual", [u for _, u in APELURI])
+cer(any(u.endswith("/photos") for _, u in APELURI), "Facebook merge si pe blog manual")
+cer("copiaza de mana" in (d10.get("eroare") or ""),
+    "ciorna spune ca articolul se copiaza de mana", d10.get("eroare"))
+config.aplica(PANOU["clienti"][0])
+cer(config.lipsuri_publicare() == [], "pe manual nu se cer date de blog", config.lipsuri_publicare())
+PANOU["clienti"][0]["config"]["blog_tip"] = "wp"
+
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)
