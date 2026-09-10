@@ -117,6 +117,11 @@ def fals_request(metoda, url, **kw):
         return Raspuns(None, 200, PANOU["imagini"].get(did, b""))
 
     # --- Gemini ---
+    if "generativelanguage.googleapis.com/v1beta/interactions" in url:
+        corp_g = kw.get("json") or {}
+        CERERI_IMAGINE.append(corp_g)
+        return Raspuns({"interaction": {"output_image": {"data": _png((10, 40, 60))}}})
+
     if "generativelanguage" in url:
         continut = {
             "topic_title": "Subiect nou de test", "angle": "unghi",
@@ -128,6 +133,19 @@ def fals_request(metoda, url, **kw):
                         "usageMetadata": {"promptTokenCount": 1200, "candidatesTokenCount": 800}})
 
     # --- OpenAI ---
+    if "api.openai.com/v1/responses" in url:
+        corp_o = kw.get("json") or {}
+        CERERI_TEXT.append(corp_o)
+        continut = {
+            "topic_title": "Subiect scris de ChatGPT", "angle": "unghi",
+            "seo_title": "Titlu SEO de test", "meta_description": "descriere",
+            "article_html": "<h1>Titlu</h1><p>text</p>", "facebook_text": "fb",
+            "instagram_text": "ig", "image_prompt": "o scena concreta",
+        }
+        return Raspuns({"output": [{"type": "message", "role": "assistant",
+                                    "content": [{"type": "output_text", "text": json.dumps(continut)}]}],
+                        "usage": {"input_tokens": 1100, "output_tokens": 700}})
+
     if "api.openai.com" in url:
         if IMAGINE_PICA:
             return Raspuns({"error": "limita"}, 429)
@@ -181,6 +199,9 @@ def fals_request(metoda, url, **kw):
 
     raise AssertionError("URL neasteptat in test: " + url)
 
+
+CERERI_TEXT: list = []
+CERERI_IMAGINE: list = []
 
 requests.request = fals_request
 requests.get = lambda url, **kw: fals_request("GET", url, **kw)
@@ -491,8 +512,43 @@ APELURI.clear()
 check_approvals.main()
 cer(any("themoonagency.ro/articol-de-test" in t for t in FB_TEXTE),
     "Facebook primeste adresa articolului", FB_TEXTE[-1:] )
-cer(any("themoonagency.ro/articol-de-test" in t and "https://" not in t.split("Articolul complet:")[-1]
-        for t in IG_TEXTE), "Instagram primeste adresa fara https, ca nu e clicabila", IG_TEXTE[-1:])
+cer(any("Articolul complet: https://themoonagency.ro/articol-de-test" in t
+        for t in IG_TEXTE), "Instagram primeste adresa intreaga, cu https://", IG_TEXTE[-1:])
+
+# 14. orice furnizor, pe orice fel: text de la ChatGPT, poza de la Nano Banana
+PANOU["clienti"][0]["config"].update({
+    "model_text": "gpt-5.6-luna", "model_imagine": "gemini-3.1-flash-image"})
+PANOU["clienti"][0]["canale"] = ["wp", "fb"]
+PANOU["drafts"].clear(); APELURI.clear(); CERERI_TEXT.clear(); CERERI_IMAGINE.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d12 = list(PANOU["drafts"].values())[0]
+cer(bool(CERERI_TEXT) and CERERI_TEXT[0].get("model") == "gpt-5.6-luna",
+    "textul poate veni de la ChatGPT, nu doar de la Gemini", CERERI_TEXT[:1])
+cer(any(t.get("type") == "web_search" for t in (CERERI_TEXT[0].get("tools") or [])),
+    "si pe ChatGPT modelul are voie sa caute pe net", CERERI_TEXT[0].get("tools"))
+cer(bool(CERERI_IMAGINE) and CERERI_IMAGINE[0].get("model") == "gemini-3.1-flash-image",
+    "poza poate veni de la Nano Banana, nu doar de la OpenAI", CERERI_IMAGINE[:1])
+cer((CERERI_IMAGINE[0].get("response_format") or {}).get("aspect_ratio") == "3:2",
+    "formatul cerut in panou ajunge la Nano Banana ca proportie",
+    CERERI_IMAGINE[0].get("response_format"))
+cer(d12["model_text"] == "gpt-5.6-luna" and d12["model_imagine"] == "gemini-3.1-flash-image",
+    "panoul afla exact ce modele au fost folosite, ca sa iasa costul",
+    [d12.get("model_text"), d12.get("model_imagine")])
+cer(d12["tokens_in"] == 1100 and d12["tokens_out"] == 700,
+    "consumul de la ChatGPT se numara la fel ca cel de la Gemini",
+    [d12.get("tokens_in"), d12.get("tokens_out")])
+
+config.aplica(PANOU["clienti"][1])
+cer(config.lipsuri_generare() == ["cheia Gemini", "cheia OpenAI"],
+    "se cer amandoua cheile cand modelele vin din case diferite", config.lipsuri_generare())
+PANOU["clienti"][1]["config"].update({"model_text": "gemini-3.6-flash",
+                                      "model_imagine": "gemini-3.1-flash-image"})
+config.aplica(PANOU["clienti"][1])
+cer(config.lipsuri_generare() == ["cheia Gemini"],
+    "cu totul pe Gemini, cheia OpenAI nu mai e ceruta degeaba", config.lipsuri_generare())
 
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)

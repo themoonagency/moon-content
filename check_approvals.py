@@ -136,11 +136,11 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
         else:
             try:
                 # pe Instagram adresele nu sunt clicabile in descriere, dar oamenii
-                # o cauta oricum; o punem scurt, fara „https://"
-                scurt = (wp.get("link") or "").replace("https://", "").replace("http://", "").rstrip("/")
+                # le copiaza; le punem intregi, cu „https://", ca sa mearga la copiere
+                adresa = (wp.get("link") or "").rstrip("/")
                 ig = meta.publish_instagram_photo(
                     image_url,
-                    _cu_link(ciorna.get("instagram_text") or "", scurt, "Articolul complet: {link}"),
+                    _cu_link(ciorna.get("instagram_text") or "", adresa, "Articolul complet: {link}"),
                 )
                 rezultat["ig_link"] = ig.get("permalink_url")
             except Exception as e:  # noqa: BLE001

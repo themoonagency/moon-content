@@ -14,6 +14,7 @@ valori).
 
 from __future__ import annotations
 import os
+import re
 
 
 def _opt(name: str, default: str = "") -> str:
@@ -59,6 +60,9 @@ class Config:
 
     OPENAI_API_KEY = ""
     OPENAI_IMAGE_MODEL = "gpt-image-2"
+    # numele „gemini_model" / „openai_model" au ramas din vremea cand un furnizor
+    # facea textul si celalalt pozele. Acum panoul trimite MODEL_TEXT si
+    # MODEL_IMAGINE, si oricare din ele poate fi de la oricare furnizor.
     # cat detaliu cere modelul (mica/medie/mare) si ce format (peisaj/patrat/portret)
     OPENAI_IMAGE_QUALITY = "mare"
     OPENAI_IMAGE_SIZE = "1536x1024"
@@ -118,6 +122,10 @@ class Config:
         self.OPENAI_IMAGE_QUALITY = c.get("openai_calitate") or Config.OPENAI_IMAGE_QUALITY
         self.OPENAI_IMAGE_SIZE = c.get("openai_marime") or Config.OPENAI_IMAGE_SIZE
 
+        # modelele, fara sa mai presupunem ce furnizor face ce
+        self.MODEL_TEXT = c.get("model_text") or self.GEMINI_MODEL
+        self.MODEL_IMAGINE = c.get("model_imagine") or self.OPENAI_IMAGE_MODEL
+
         self.TELEGRAM_BOT_TOKEN = c.get("telegram_bot_token") or ""
         self.TELEGRAM_CHAT_ID = c.get("telegram_chat_id") or ""
 
@@ -133,11 +141,28 @@ class Config:
         self.IDEE = client.get("idee") or None
         self.LOGO_URL = c.get("logo_url") or ""
 
+    @staticmethod
+    def furnizor(model: str) -> str:
+        """Din ce casa e modelul. „gpt-…" si „o3/o4…" sunt OpenAI, restul Gemini."""
+        m = (model or "").strip().lower()
+        return "openai" if m.startswith("gpt") or re.match(r"^o\d", m) else "gemini"
+
+    @property
+    def FURNIZOR_TEXT(self) -> str:
+        return self.furnizor(self.MODEL_TEXT)
+
+    @property
+    def FURNIZOR_IMAGINE(self) -> str:
+        return self.furnizor(self.MODEL_IMAGINE)
+
     def lipsuri_generare(self) -> list[str]:
+        """Cerem doar cheile de care chiar avem nevoie: daca textul si poza vin
+        amandoua de la Gemini, cheia OpenAI nu ne trebuie deloc."""
+        nevoie = {self.FURNIZOR_TEXT, self.FURNIZOR_IMAGINE}
         lipsa = []
-        if not self.GEMINI_API_KEY:
+        if "gemini" in nevoie and not self.GEMINI_API_KEY:
             lipsa.append("cheia Gemini")
-        if not self.OPENAI_API_KEY:
+        if "openai" in nevoie and not self.OPENAI_API_KEY:
             lipsa.append("cheia OpenAI")
         return lipsa
 

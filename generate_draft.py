@@ -140,8 +140,8 @@ def pentru_client(client: dict) -> None:
         "canale": config.CANALE,
         "slot": config.SLOT,
         # consumul, ca panoul să poată arăta costul și profitul pe client
-        "model_text": config.GEMINI_MODEL,
-        "model_imagine": config.OPENAI_IMAGE_MODEL,
+        "model_text": config.MODEL_TEXT,
+        "model_imagine": config.MODEL_IMAGINE,
         "calitate_imagine": config.OPENAI_IMAGE_QUALITY,
         "tokens_in": CONSUM["tokens_in"],
         "tokens_out": CONSUM["tokens_out"],

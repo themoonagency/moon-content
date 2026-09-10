@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from config import config
-from content_gen import CONSUM, _call_gemini, _extract_json, _repair_json
+from content_gen import CONSUM, cheama_modelul, _extract_json, _repair_json
 
 
 def _pret(p: dict) -> str:
@@ -114,7 +114,7 @@ def genereaza_pentru_produs(produs: dict) -> dict:
         "contents": [{"role": "user", "parts": [{"text": _prompt(produs)}]}],
         "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096},
     }
-    date = _call_gemini(payload)
+    date = cheama_modelul(payload)
     try:
         text = date["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError) as e:

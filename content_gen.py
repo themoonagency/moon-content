@@ -27,7 +27,7 @@ def _gemini_url() -> str:
     # se calculeaza la fiecare apel: modelul si cheia sunt ale clientului curent
     return (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{config.GEMINI_MODEL}:generateContent?key={config.GEMINI_API_KEY}"
+        f"{config.MODEL_TEXT}:generateContent?key={config.GEMINI_API_KEY}"
     )
 
 _LINK = re.compile(r'<a\b[^>]*href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
@@ -216,18 +216,18 @@ TEXT DE REPARAT:
 """
 
 
+# consumul ultimei generări, citit de generate_draft.py și trimis în panou
+CONSUM = {"tokens_in": 0, "tokens_out": 0}
+
+
 def _repair_json(broken_text: str) -> dict:
     payload = {
         "contents": [{"role": "user", "parts": [{"text": REPAIR_PROMPT.format(broken=broken_text)}]}],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
     }
-    data = _call_gemini(payload)
+    data = cheama_modelul(payload)
     text = data["candidates"][0]["content"]["parts"][0]["text"]
     return _extract_json(text)
-
-
-# consumul ultimei generări, citit de generate_draft.py și trimis în panou
-CONSUM = {"tokens_in": 0, "tokens_out": 0}
 
 
 def _aduna_consum(data: dict) -> None:
@@ -255,6 +255,85 @@ def _call_gemini(payload: dict, max_retries: int = 4) -> dict:
     last_error.raise_for_status()
 
 
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+
+
+def _payload_pentru_openai(payload: dict) -> dict:
+    """Traduce cererea scrisă în limbajul Gemini în limbajul OpenAI. Prompturile
+    rămân aceleași; se schimbă doar plicul."""
+    text = "\n\n".join(
+        p.get("text", "")
+        for c in payload.get("contents", [])
+        for p in c.get("parts", [])
+        if p.get("text")
+    )
+    gc = payload.get("generationConfig") or {}
+    cerere = {"model": config.MODEL_TEXT, "input": text}
+    if payload.get("tools"):
+        # „google_search" la Gemini = „web_search" la OpenAI: același lucru,
+        # modelul are voie să caute pe net înainte să scrie.
+        cerere["tools"] = [{"type": "web_search"}]
+    if gc.get("maxOutputTokens"):
+        cerere["max_output_tokens"] = int(gc["maxOutputTokens"])
+    if gc.get("temperature") is not None:
+        cerere["temperature"] = gc["temperature"]
+    return cerere
+
+
+def _text_din_openai(data: dict) -> str:
+    if isinstance(data.get("output_text"), str) and data["output_text"].strip():
+        return data["output_text"]
+    bucati = []
+    for item in data.get("output") or []:
+        if (item or {}).get("type") != "message":
+            continue
+        for c in item.get("content") or []:
+            if (c or {}).get("type") in ("output_text", "text") and c.get("text"):
+                bucati.append(c["text"])
+    return "\n".join(bucati)
+
+
+def _call_openai(payload: dict, max_retries: int = 4) -> dict:
+    """Același contract ca _call_gemini: primește o cerere în formă Gemini și
+    întoarce un răspuns în formă Gemini, ca restul codului să nu știe diferența."""
+    cerere = _payload_pentru_openai(payload)
+    antet = {"Authorization": f"Bearer {config.OPENAI_API_KEY}",
+             "Content-Type": "application/json"}
+    delay = 8
+    last_error = None
+    for attempt in range(max_retries):
+        resp = requests.post(OPENAI_RESPONSES_URL, headers=antet, json=cerere, timeout=180)
+        if resp.status_code == 429:
+            last_error = resp
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+            continue
+        # modelele de „gandire" nu accepta temperatura; o scoatem si reincercam o data
+        if resp.status_code == 400 and "temperature" in resp.text and "temperature" in cerere:
+            cerere.pop("temperature")
+            last_error = resp
+            continue
+        resp.raise_for_status()
+        data = resp.json()
+        u = data.get("usage") or {}
+        CONSUM["tokens_in"] += int(u.get("input_tokens") or 0)
+        CONSUM["tokens_out"] += int(u.get("output_tokens") or 0)
+        text = _text_din_openai(data)
+        if not text.strip():
+            raise RuntimeError(f"Răspuns OpenAI fără text: {json.dumps(data)[:400]}")
+        # il imbracam in forma Gemini
+        return {"candidates": [{"content": {"parts": [{"text": text}]}}]}
+    last_error.raise_for_status()
+
+
+def cheama_modelul(payload: dict, max_retries: int = 4) -> dict:
+    """Punctul unic de intrare pentru text. Alege furnizorul după modelul pus
+    în panou — Gemini sau OpenAI — și întoarce mereu forma Gemini."""
+    if config.FURNIZOR_TEXT == "openai":
+        return _call_openai(payload, max_retries=max_retries)
+    return _call_gemini(payload, max_retries=max_retries)
+
+
 def generate_authority_draft() -> dict:
     CONSUM["tokens_in"] = CONSUM["tokens_out"] = 0
     used_topics = panel.subiecte_recente(config.CLIENT_ID, zile=45)
@@ -278,7 +357,7 @@ def generate_authority_draft() -> dict:
         },
     }
 
-    data = _call_gemini(payload)
+    data = cheama_modelul(payload)
 
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"]
