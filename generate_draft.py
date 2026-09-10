@@ -10,13 +10,15 @@ Pornire manuală din panou: CLIENT_ID + FORTEAZA (workflow_dispatch).
 """
 
 from __future__ import annotations
+import html as html_lib
 import os
+import re
 import sys
 import traceback
 
 import panel
 from config import config
-from content_gen import CONSUM, generate_authority_draft
+from content_gen import CONSUM, curata_linkurile, generate_authority_draft
 from content_gen_catalog import genereaza_pentru_produs
 from image_gen import compune_din_produs, generate_image, image_from_url
 import telegram_bot as tg
@@ -34,6 +36,37 @@ def genereaza_imagine(prompt: str) -> tuple[bytes | None, str]:
             ultima = str(e)[:300]
             print(f"  imaginea a eșuat (încercarea {incercare}): {ultima}")
     return None, ultima
+
+
+def _pune_cta(html: str) -> str:
+    """Indemnul la actiune, asa cum l-a ales clientul in panou: text simplu,
+    link in text, sau buton. Modelul scrie doar fraza; forma o dam noi, ca sa
+    arate la fel de fiecare data si sa duca unde trebuie."""
+    text = (config.CLIENT_CTA or "").strip()
+    link = (config.CLIENT_CTA_LINK or "").strip()
+    tip = config.CLIENT_CTA_TIP or "text"
+    if not text or not link or tip == "text":
+        return html
+
+    sigur = html_lib.escape(text, quote=True)
+    adresa = html_lib.escape(link, quote=True)
+    if tip == "buton":
+        bucata = (
+            f'<p style="margin:28px 0"><a href="{adresa}" '
+            'style="display:inline-block;background:#ff2f4d;color:#fff;text-decoration:none;'
+            'padding:14px 26px;border-radius:999px;font-weight:700">'
+            f'{sigur}</a></p>'
+        )
+    else:
+        bucata = f'<p><a href="{adresa}">{sigur}</a></p>'
+
+    # daca modelul a pus deja fraza la final, o inlocuim; altfel o adaugam
+    simplu = f"<p>{sigur}</p>"
+    if simplu in html:
+        return html.replace(simplu, bucata)
+    if text in html:
+        return re.sub(r"<p>[^<]*" + re.escape(text) + r"[^<]*</p>", bucata, html, count=1)
+    return html + bucata
 
 
 def pentru_client(client: dict) -> None:
@@ -60,6 +93,14 @@ def pentru_client(client: dict) -> None:
         tg.anunta(f"⚠️ *MOON Post* — generarea de text a eșuat pentru {nume}:\n`{str(e)[:300]}`")
         print(f"  EȘEC la generare: {e}")
         return
+
+    # Intai scoatem linkurile inventate de model, apoi punem indemnul — altfel
+    # am verifica si linkul ales de om, care e bun prin definitie.
+    ale_noastre = {str(p.get("url") or "").rstrip("/") for p in (config.SITE or []) if p.get("url")}
+    continut["article_html"], linkuri_scoase = curata_linkurile(continut.get("article_html") or "", ale_noastre)
+    if linkuri_scoase:
+        print(f"  {linkuri_scoase} link(uri) inventate scoase din articol")
+    continut["article_html"] = _pune_cta(continut["article_html"])
 
     imagine, eroare_img = None, ""
     poza_costa = True          # dacă a trecut pe la OpenAI, se pune la socoteală
@@ -101,6 +142,7 @@ def pentru_client(client: dict) -> None:
         # consumul, ca panoul să poată arăta costul și profitul pe client
         "model_text": config.GEMINI_MODEL,
         "model_imagine": config.OPENAI_IMAGE_MODEL,
+        "calitate_imagine": config.OPENAI_IMAGE_QUALITY,
         "tokens_in": CONSUM["tokens_in"],
         "tokens_out": CONSUM["tokens_out"],
         # poza luată ca atare din catalog nu costă nimic; cea pusă în scenă, da

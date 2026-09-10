@@ -16,6 +16,9 @@ from config import config
 
 OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations"
 
+# panoul foloseste cuvinte romanesti; OpenAI vrea low/medium/high
+_CALITATE = {"mica": "low", "medie": "medium", "mare": "high"}
+
 # Logo-ul e AL CLIENTULUI și vine din panou (config.LOGO_URL). Fără el, imaginea
 # iese curată — nu punem logo-ul agenției peste postările altcuiva.
 _LOGO_CACHE: dict[str, bytes] = {}
@@ -91,7 +94,7 @@ def image_from_url(url: str, cu_logo: bool = True) -> bytes:
 OPENAI_EDITS_URL = "https://api.openai.com/v1/images/edits"
 
 
-def compune_din_produs(poza: bytes, prompt: str, size: str = "1024x1024") -> bytes:
+def compune_din_produs(poza: bytes, prompt: str, size: str | None = None) -> bytes:
     """Ia poza REALĂ a produsului și o pune într-o scenă editorială, păstrând
     produsul așa cum e. Costă cât o generare obișnuită, dar iese o imagine care
     arată a reclamă, nu a poză de catalog pe fundal alb.
@@ -109,7 +112,8 @@ def compune_din_produs(poza: bytes, prompt: str, size: str = "1024x1024") -> byt
         "image": ("produs.png", _ca_png(poza), "image/png"),
         "model": (None, config.OPENAI_IMAGE_MODEL),
         "prompt": (None, intreg[:3500]),
-        "size": (None, size),
+        "size": (None, size or config.OPENAI_IMAGE_SIZE),
+        "quality": (None, _CALITATE.get(config.OPENAI_IMAGE_QUALITY, "high")),
         "n": (None, "1"),
     }
     resp = requests.post(
@@ -133,7 +137,7 @@ def _ca_png(date: bytes) -> bytes:
     return out.getvalue()
 
 
-def generate_image(prompt: str, size: str = "1024x1024") -> bytes:
+def generate_image(prompt: str, size: str | None = None) -> bytes:
     headers = {
         "Authorization": f"Bearer {config.OPENAI_API_KEY}",
         "Content-Type": "application/json",
@@ -141,7 +145,8 @@ def generate_image(prompt: str, size: str = "1024x1024") -> bytes:
     payload = {
         "model": config.OPENAI_IMAGE_MODEL,
         "prompt": prompt,
-        "size": size,
+        "size": size or config.OPENAI_IMAGE_SIZE,
+        "quality": _CALITATE.get(config.OPENAI_IMAGE_QUALITY, "high"),
         "n": 1,
     }
     resp = requests.post(OPENAI_IMAGES_URL, headers=headers, json=payload, timeout=120)

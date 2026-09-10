@@ -36,6 +36,8 @@ class Config:
     CLIENT_TONE = "expert, direct, fără fraze de umplutură, dar prietenos"
     CLIENT_SUBIECTE = ""
     CLIENT_CTA = ""
+    CLIENT_CTA_LINK = ""      # unde duce indemnul
+    CLIENT_CTA_TIP = "text"   # text | link | buton
     FLUX = "autoritate"
 
     WP_URL = ""
@@ -56,7 +58,10 @@ class Config:
     GEMINI_MODEL = "gemini-3.6-flash"
 
     OPENAI_API_KEY = ""
-    OPENAI_IMAGE_MODEL = "gpt-image-1"
+    OPENAI_IMAGE_MODEL = "gpt-image-2"
+    # cat detaliu cere modelul (mica/medie/mare) si ce format (peisaj/patrat/portret)
+    OPENAI_IMAGE_QUALITY = "mare"
+    OPENAI_IMAGE_SIZE = "1536x1024"
 
     TELEGRAM_BOT_TOKEN = ""
     TELEGRAM_CHAT_ID = ""
@@ -89,6 +94,8 @@ class Config:
         self.CLIENT_TONE = c.get("ton") or Config.CLIENT_TONE
         self.CLIENT_SUBIECTE = c.get("subiecte") or ""
         self.CLIENT_CTA = c.get("cta") or ""
+        self.CLIENT_CTA_LINK = (c.get("cta_link") or "").strip()
+        self.CLIENT_CTA_TIP = c.get("cta_tip") or "text"
 
         self.WP_URL = (c.get("wp_url") or "").rstrip("/")
         self.WP_USER = c.get("wp_user") or ""
@@ -108,6 +115,8 @@ class Config:
 
         self.OPENAI_API_KEY = c.get("openai_key") or ""
         self.OPENAI_IMAGE_MODEL = c.get("openai_model") or Config.OPENAI_IMAGE_MODEL
+        self.OPENAI_IMAGE_QUALITY = c.get("openai_calitate") or Config.OPENAI_IMAGE_QUALITY
+        self.OPENAI_IMAGE_SIZE = c.get("openai_marime") or Config.OPENAI_IMAGE_SIZE
 
         self.TELEGRAM_BOT_TOKEN = c.get("telegram_bot_token") or ""
         self.TELEGRAM_CHAT_ID = c.get("telegram_chat_id") or ""

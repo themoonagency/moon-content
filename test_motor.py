@@ -53,6 +53,8 @@ PANOU = {
 }
 APELURI = []
 BLOG_API = []
+FB_TEXTE = []
+IG_TEXTE = []
 IMAGINE_PICA = False
 
 
@@ -133,6 +135,9 @@ def fals_request(metoda, url, **kw):
             # compunerea „wow": trebuie sa primeasca poza produsului ca fisier
             assert "files" in kw and "image" in kw["files"], "edits fara poza de pornire"
             return Raspuns({"data": [{"b64_json": _png((30, 30, 40))}]})
+        corp = kw.get("json") or {}
+        assert corp.get("quality") == "high", f"calitatea nu ajunge la OpenAI: {corp.get('quality')}"
+        assert corp.get("size") == "1536x1024", f"marimea nu ajunge la OpenAI: {corp.get('size')}"
         return Raspuns({"data": [{"b64_json": _png()}]})
 
     # --- WordPress ---
@@ -157,10 +162,13 @@ def fals_request(metoda, url, **kw):
     # --- Meta ---
     if "graph.facebook.com" in url:
         if url.endswith(("/photos",)):
+            FB_TEXTE.append(str((kw.get("data") or kw.get("json") or {}).get("caption")
+                                or (kw.get("data") or {}).get("message") or ""))
             return Raspuns({"id": "1", "post_id": "p1"})
         if url.endswith("/feed"):
             return Raspuns({"id": "p2"})
         if url.endswith("/media"):
+            IG_TEXTE.append(str((kw.get("data") or kw.get("json") or {}).get("caption") or ""))
             return Raspuns({"id": "c1"})
         if url.endswith("/media_publish"):
             return Raspuns({"id": "m1"})
@@ -258,8 +266,10 @@ except SystemExit:
 d4 = list(PANOU["drafts"].values())[0]
 cer(d4.get("tokens_in") == 1200 and d4.get("tokens_out") == 800,
     "consumul de tokeni ajunge in panou", [d4.get("tokens_in"), d4.get("tokens_out")])
-cer(d4.get("imagini") == 1 and d4.get("model_imagine") == "gpt-image-1",
-    "se raporteaza si imaginea, cu modelul folosit", [d4.get("imagini"), d4.get("model_imagine")])
+cer(d4.get("imagini") == 1 and d4.get("model_imagine") == "gpt-image-2"
+    and d4.get("calitate_imagine") == "mare",
+    "se raporteaza imaginea, cu modelul si calitatea folosite",
+    [d4.get("imagini"), d4.get("model_imagine"), d4.get("calitate_imagine")])
 cer(any("logo-1.png" in u for _, u in APELURI), "logoul clientului e descarcat si pus pe imagine")
 
 # fara logo pus in panou, imaginea iese curata
@@ -429,6 +439,60 @@ cer("copiaza de mana" in (d10.get("eroare") or ""),
 config.aplica(PANOU["clienti"][0])
 cer(config.lipsuri_publicare() == [], "pe manual nu se cer date de blog", config.lipsuri_publicare())
 PANOU["clienti"][0]["config"]["blog_tip"] = "wp"
+
+# 13. linkuri inventate, CTA cu buton, si adresa articolului pe Facebook/Instagram
+from content_gen import curata_linkurile
+
+LINKURI_VII = {"https://openai.com/chiar-exista"}
+
+
+def _fals_link(metoda, url, **kw):
+    if url in LINKURI_VII:
+        return Raspuns({}, 200)
+    return Raspuns({}, 404)
+
+
+_req_vechi = requests.request
+requests.request = _fals_link
+html_curatat, scoase = curata_linkurile(
+    '<p>Vezi <a href="https://openai.com/chiar-exista">sursa buna</a> si '
+    '<a href="https://openai.com/index/inventat-de-model/">sursa inventata</a>.</p>')
+requests.request = _req_vechi
+cer(scoase == 1, "linkul inventat e scos", scoase)
+cer("sursa inventata" in html_curatat and "inventat-de-model" not in html_curatat,
+    "textul ramane, doar linkul mort dispare", html_curatat)
+cer("chiar-exista" in html_curatat, "linkul valid nu e atins")
+
+# paginile clientului nu se mai verifica: le-am citit noi de pe site
+requests.request = _fals_link
+html2, scoase2 = curata_linkurile(
+    '<p><a href="https://themoonagency.ro/meta-ads">Meta Ads</a></p>',
+    {"https://themoonagency.ro/meta-ads"})
+requests.request = _req_vechi
+cer(scoase2 == 0 and "meta-ads" in html2, "paginile citite de pe site sunt de incredere", html2)
+
+# CTA ca buton
+PANOU["clienti"][0]["config"].update({
+    "cta": "Solicita un audit gratuit", "cta_link": "https://themoonagency.ro/contact", "cta_tip": "buton"})
+PANOU["clienti"][0]["canale"] = ["wp", "fb", "ig"]
+PANOU["drafts"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d11 = list(PANOU["drafts"].values())[0]
+cer('href="https://themoonagency.ro/contact"' in d11["article_html"],
+    "indemnul primeste linkul ales in panou")
+cer("border-radius" in d11["article_html"], "pe buton iese buton, nu link simplu")
+
+# adresa articolului ajunge in textele de social
+d11["stare"] = "aprobat"
+APELURI.clear()
+check_approvals.main()
+cer(any("themoonagency.ro/articol-de-test" in t for t in FB_TEXTE),
+    "Facebook primeste adresa articolului", FB_TEXTE[-1:] )
+cer(any("themoonagency.ro/articol-de-test" in t and "https://" not in t.split("Articolul complet:")[-1]
+        for t in IG_TEXTE), "Instagram primeste adresa fara https, ca nu e clicabila", IG_TEXTE[-1:])
 
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)

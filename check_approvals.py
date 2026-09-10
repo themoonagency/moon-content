@@ -90,6 +90,15 @@ def publica(ciorna: dict) -> None:
     _publica_social(ciorna, draft_id, wp)
 
 
+def _cu_link(text: str, link: str, sablon: str) -> str:
+    """Pune adresa articolului la finalul textului de social, o singura data.
+    Fara asta, postarile trimit oamenii nicaieri — iar articolul e tot ce avem."""
+    text = (text or "").strip()
+    if not link or link in text:
+        return text
+    return (text + "\n\n" + sablon.format(link=link)).strip()
+
+
 def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[str] | None = None) -> None:
     """Facebook / Instagram / Profil Google, dupa ce blogul e rezolvat (sau sarit)."""
     rezultat = {"wp_link": wp.get("link")}
@@ -103,7 +112,11 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
     if "fb" in canale:
         try:
             if image_url:
-                fb = meta.publish_facebook_photo(image_url, ciorna.get("facebook_text") or "")
+                # postarea cu poza nu are camp de link, deci il punem in text
+                fb = meta.publish_facebook_photo(
+                    image_url,
+                    _cu_link(ciorna.get("facebook_text") or "", wp.get("link"), "Articolul complet: {link}"),
+                )
                 rezultat["fb_link"] = fb.get("permalink_url")
             elif wp.get("link"):
                 # fără imagine, postăm link către articol — înainte, Facebook se sărea tăcut
@@ -122,7 +135,13 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
             note.append("Instagram sărit: nu există imagine, iar Instagram nu acceptă postări fără imagine.")
         else:
             try:
-                ig = meta.publish_instagram_photo(image_url, ciorna.get("instagram_text") or "")
+                # pe Instagram adresele nu sunt clicabile in descriere, dar oamenii
+                # o cauta oricum; o punem scurt, fara „https://"
+                scurt = (wp.get("link") or "").replace("https://", "").replace("http://", "").rstrip("/")
+                ig = meta.publish_instagram_photo(
+                    image_url,
+                    _cu_link(ciorna.get("instagram_text") or "", scurt, "Articolul complet: {link}"),
+                )
                 rezultat["ig_link"] = ig.get("permalink_url")
             except Exception as e:  # noqa: BLE001
                 traceback.print_exc()

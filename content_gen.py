@@ -30,6 +30,48 @@ def _gemini_url() -> str:
         f"{config.GEMINI_MODEL}:generateContent?key={config.GEMINI_API_KEY}"
     )
 
+_LINK = re.compile(r'<a\b[^>]*href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
+
+
+def _link_merge(url: str) -> bool:
+    """Chiar exista pagina? Modelele inventeaza adrese de sursa care suna bine
+    si dau 404 — un articol cu link mort arata mai rau decat unul fara link."""
+    antete = {"User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                             "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")}
+    for metoda in ("HEAD", "GET"):
+        try:
+            r = requests.request(metoda, url, headers=antete, timeout=12, allow_redirects=True)
+            if r.status_code < 400:
+                return True
+            if r.status_code in (403, 405) and metoda == "HEAD":
+                continue          # unele servere refuza HEAD, incercam GET
+            return False
+        except requests.RequestException:
+            continue
+    return False
+
+
+def curata_linkurile(html: str, permise: set | None = None) -> tuple:
+    """Scoate linkurile care nu raspund, pastrand textul. Intoarce si cate a scos."""
+    permise = permise or set()
+    verdict = {}
+    scoase = [0]
+
+    def inlocuieste(m):
+        url, text = m.group(1), m.group(2)
+        if url in permise or url.rstrip("/") in permise:
+            return m.group(0)
+        if url not in verdict:
+            verdict[url] = _link_merge(url)
+        if verdict[url]:
+            return m.group(0)
+        scoase[0] += 1
+        print(f"  link mort scos: {url}")
+        return text
+
+    return _LINK.sub(inlocuieste, html or ""), scoase[0]
+
+
 def _pagini_site() -> str:
     """Paginile citite de panou de pe site-ul clientului. Fara ele, botul scrie
     generic despre domeniu si inventeaza linkuri interne care nu exista."""
@@ -49,6 +91,7 @@ def _pagini_site() -> str:
         "\n\nPAGINILE REALE DE PE SITE-UL CLIENTULUI (astea sunt serviciile lui, "
         "asa cum le prezinta el):\n" + "\n".join(randuri) +
         "\n\nFoloseste-le ca material: scrie despre ce chiar ofera, nu despre domeniu in general. "
+        "Astea sunt singurele adrese de pe site-ul clientului pe care ai voie sa le folosesti. "
         "Cand trimiti cititorul spre un serviciu, pune LINK catre pagina exacta din lista de mai sus "
         "(2-3 linkuri interne in articol, in text, nu la final). "
         "NU inventa pagini, servicii, preturi sau adrese care nu apar in lista."
@@ -88,6 +131,7 @@ Cauți o noutate/tendință recentă și relevantă din nișă, apoi scrii:
    - Include, dacă citezi o cifră sau un fapt din știre, sursa (nume + link
      dacă îl ai)
    - Se încheie cu un CTA spre serviciile {config.CLIENT_NAME}{(", formulat asa: " + config.CLIENT_CTA) if config.CLIENT_CTA else ""}
+     NU pune tu link sau buton la CTA — se adaugă automat după generare.
 2. Un TEXT PENTRU FACEBOOK (sub 400 caractere), NU e copy-paste din articol
    — unghi propriu, CTA propriu, poate pune o întrebare la final.
 
@@ -117,6 +161,10 @@ Cauți o noutate/tendință recentă și relevantă din nișă, apoi scrii:
 REGULI STRICTE:
 - NU repeta subiecte tratate recent (lista e mai jos) — alege altceva.
 - NU inventa cifre sau citate. Dacă nu ești sigur de o cifră, nu o pune.
+- NU inventa ADRESE WEB. Pui un link doar dacă adresa exactă a apărut în rezultatele
+  căutării pe care tocmai ai făcut-o. Dacă vrei să citezi o sursă și nu ai adresa ei
+  exactă, scrie doar numele sursei, fără link. Un link inventat care dă 404 strică
+  mai mult decât lipsa lui — oricum le verificăm pe toate înainte de publicare.
 - Răspunde DOAR cu un obiect JSON valid, fără text în plus, fără ```json.
 - FOARTE IMPORTANT pentru JSON valid: în interiorul textelor (title, article_html
   etc.) NU folosi niciodată ghilimele duble drepte ("). Dacă ai nevoie de un
