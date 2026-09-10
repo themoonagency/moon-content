@@ -17,6 +17,14 @@ import os
 import re
 
 
+def _bifa(v) -> bool:
+    """Bifele din panou vin ca True/False, dar un config mai vechi le poate avea
+    ca sir („true", „on"). Un sir gol si lipsa inseamna acelasi lucru: stins."""
+    if isinstance(v, bool):
+        return v
+    return str(v or "").strip().lower() in ("1", "true", "da", "on", "yes")
+
+
 def _opt(name: str, default: str = "") -> str:
     # Actions trimite variabilele nesetate ca string gol, nu lipsă
     val = os.environ.get(name, "").strip()
@@ -72,6 +80,27 @@ class Config:
     IMAGINE_STIL = "foto"
     IMAGINE_PALETA = ""
     IMAGINE_EVITA = ""
+    IMAGINE_LUMINA = ""            # naturala | calda | studio | contrast | inchisa
+    IMAGINE_FORMAT = "16:9"        # 16:9 | 3:2 | 4:3 | 1:1
+    IMAGINE_TEXT_PE_POZA = "nu"    # nu | titlu | titlu_sub
+    IMAGINE_LOGO_LOC = "dreapta-jos"
+    IMAGINE_LOGO_MARIME = "mic"    # mic | mediu | mare
+    # Cerintele scrise de client, cu cuvintele lui. Se pun ULTIMELE in prompt,
+    # ca instructiune finala: ce scrie omul bate ce a bifat din liste.
+    IMAGINE_CERINTE = ""
+
+    # A doua imagine, cea de Instagram: construita, cu text mare pe ea. Pe blog
+    # castiga textul, pe Instagram castiga poza — deci nu e aceeasi imagine.
+    IG_SEPARATA = False
+    IG_SABLON = "lista"            # lista | titlu | citat | cifra | produs | inainte_dupa | pasi
+    IG_FORMAT = "4:5"              # 4:5 | 1:1 | 9:16
+    IG_TEXT_CAT = "mediu"          # putin | mediu | mult
+    IG_FUNDAL = "inchis"           # inchis | deschis | brand | poza | gradient
+    IG_ACCENT = ""
+    IG_FONT = "gros"               # gros | elegant | simplu
+    IG_BANDA = False
+    IG_HANDLE = ""
+    IG_CERINTE = ""
     AUTOR_NUME = ""
     AUTOR_URL = ""
     AUTOR_ROL = ""
@@ -160,6 +189,23 @@ class Config:
         self.IMAGINE_STIL = c.get("imagine_stil") or Config.IMAGINE_STIL
         self.IMAGINE_PALETA = c.get("imagine_paleta") or ""
         self.IMAGINE_EVITA = c.get("imagine_evita") or ""
+        self.IMAGINE_LUMINA = c.get("imagine_lumina") or ""
+        self.IMAGINE_FORMAT = c.get("imagine_format") or Config.IMAGINE_FORMAT
+        self.IMAGINE_TEXT_PE_POZA = c.get("imagine_text_pe_poza") or Config.IMAGINE_TEXT_PE_POZA
+        self.IMAGINE_LOGO_LOC = c.get("imagine_logo_loc") or Config.IMAGINE_LOGO_LOC
+        self.IMAGINE_LOGO_MARIME = c.get("imagine_logo_marime") or Config.IMAGINE_LOGO_MARIME
+        self.IMAGINE_CERINTE = (c.get("imagine_cerinte") or "").strip()
+
+        self.IG_SEPARATA = _bifa(c.get("ig_separata"))
+        self.IG_SABLON = c.get("ig_sablon") or Config.IG_SABLON
+        self.IG_FORMAT = c.get("ig_format") or Config.IG_FORMAT
+        self.IG_TEXT_CAT = c.get("ig_text_cat") or Config.IG_TEXT_CAT
+        self.IG_FUNDAL = c.get("ig_fundal") or Config.IG_FUNDAL
+        self.IG_ACCENT = (c.get("ig_accent") or "").strip()
+        self.IG_FONT = c.get("ig_font") or Config.IG_FONT
+        self.IG_BANDA = _bifa(c.get("ig_banda"))
+        self.IG_HANDLE = (c.get("ig_handle") or "").strip()
+        self.IG_CERINTE = (c.get("ig_cerinte") or "").strip()
         self.IDEE = client.get("idee") or None
         self.LOGO_URL = c.get("logo_url") or ""
 

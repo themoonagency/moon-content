@@ -25,8 +25,25 @@ _CALITATE = {"mica": "low", "medie": "medium", "mare": "high"}
 _PROPORTIE = {"1536x1024": "3:2", "1024x1024": "1:1", "1024x1536": "2:3"}
 _MARIME_G = {"mica": "512px", "medie": "1K", "mare": "2K"}
 
+# Formatele pe care le poate cere omul din panou -> ce intelege fiecare furnizor.
+# OpenAI stie doar trei marimi, deci pentru 16:9 / 4:3 / 4:5 ii cerem cea mai
+# apropiata si taiem noi pe centru la proportia ceruta. Gemini le ia direct.
+FORMATE = {
+    "16:9": ("1536x1024", "16:9", 16 / 9),
+    "3:2": ("1536x1024", "3:2", 3 / 2),
+    "4:3": ("1536x1024", "4:3", 4 / 3),
+    "1:1": ("1024x1024", "1:1", 1.0),
+    "4:5": ("1024x1536", "4:5", 4 / 5),
+    "9:16": ("1024x1536", "9:16", 9 / 16),
+}
 
-def _gemini_format(size: str | None) -> dict:
+
+def forma(cheie: str | None) -> tuple:
+    """(marime OpenAI, proportie Gemini, raport) pentru un format din panou."""
+    return FORMATE.get((cheie or "").strip(), FORMATE["3:2"])
+
+
+def _gemini_format(size: str | None, proportie: str | None = None) -> dict:
     marime = _MARIME_G.get(config.OPENAI_IMAGE_QUALITY, "2K")
     # varianta „lite" stie doar 1K; cerand mai mult, apelul pica
     if "lite" in (config.MODEL_IMAGINE or "").lower():
@@ -34,9 +51,26 @@ def _gemini_format(size: str | None) -> dict:
     return {
         "type": "image",
         "mime_type": "image/png",
-        "aspect_ratio": _PROPORTIE.get(size or config.OPENAI_IMAGE_SIZE, "3:2"),
+        "aspect_ratio": proportie or _PROPORTIE.get(size or config.OPENAI_IMAGE_SIZE, "3:2"),
         "image_size": marime,
     }
+
+
+def _taie_la(img, raport: float | None):
+    """Taie pe centru pana la proportia ceruta. Fara asta, un client care cere
+    4:5 pentru Instagram primea tot o poza lata, cu benzi puse de platforma."""
+    if not raport:
+        return img
+    lat, inalt = img.size
+    if abs(lat / inalt - raport) < 0.02:
+        return img
+    if lat / inalt > raport:                     # prea lata -> taiem din laturi
+        nou = int(round(inalt * raport))
+        x = (lat - nou) // 2
+        return img.crop((x, 0, x + nou, inalt))
+    nou = int(round(lat / raport))               # prea inalta -> taiem sus si jos
+    y = (inalt - nou) // 2
+    return img.crop((0, y, lat, y + nou))
 
 
 def _gemini_imagine(intrare: list, size: str | None = None) -> bytes:
@@ -84,27 +118,40 @@ def _logo_bytes() -> bytes | None:
     return None
 
 
+# Cat de lat e logoul, ca procent din latimea imaginii, si unde sta.
+_LOGO_LAT = {"mic": 0.14, "mediu": 0.20, "mare": 0.28}
+
+
 def _apply_logo(img: Image.Image) -> Image.Image:
-    """Suprapune logo-ul clientului în colțul din dreapta-jos. Dacă nu are logo
-    pus în panou, întoarce imaginea neschimbată."""
+    """Suprapune logo-ul clientului. Colțul, mărimea și „fără logo" vin din
+    panou (Cum arată imaginile). Fără logo pus, imaginea rămâne curată."""
+    loc = (config.IMAGINE_LOGO_LOC or "dreapta-jos").strip().lower()
+    if loc == "fara":
+        return img
     date = _logo_bytes()
     if not date:
         return img
 
     logo = Image.open(io.BytesIO(date)).convert("RGBA")
-    target_w = int(img.width * 0.16)  # ~16% din lățimea imaginii
+    proc = _LOGO_LAT.get((config.IMAGINE_LOGO_MARIME or "mic").strip().lower(), 0.14)
+    target_w = max(40, int(img.width * proc))
     ratio = target_w / logo.width
-    logo = logo.resize((target_w, int(logo.height * ratio)), Image.LANCZOS)
+    logo = logo.resize((target_w, max(1, int(logo.height * ratio))), Image.LANCZOS)
 
-    margin = int(img.width * 0.03)
-    position = (img.width - logo.width - margin, img.height - logo.height - margin)
-
+    m = int(img.width * 0.03)
+    dreapta, jos = img.width - logo.width - m, img.height - logo.height - m
+    centru = (img.width - logo.width) // 2
+    pozitii = {
+        "dreapta-jos": (dreapta, jos), "stanga-jos": (m, jos),
+        "dreapta-sus": (dreapta, m), "stanga-sus": (m, m),
+        "centru-jos": (centru, jos),
+    }
     base = img.convert("RGBA")
-    base.alpha_composite(logo, dest=position)
+    base.alpha_composite(logo, dest=pozitii.get(loc, pozitii["dreapta-jos"]))
     return base.convert("RGB")
 
 
-def _png_to_jpeg(png_bytes: bytes, cu_logo: bool = True) -> bytes:
+def _png_to_jpeg(png_bytes: bytes, cu_logo: bool = True, raport: float | None = None) -> bytes:
     img = Image.open(io.BytesIO(png_bytes))
     if img.mode in ("RGBA", "LA", "P"):
         # JPEG nu are canal alpha — punem fundal alb sub orice transparență.
@@ -115,6 +162,7 @@ def _png_to_jpeg(png_bytes: bytes, cu_logo: bool = True) -> bytes:
     else:
         img = img.convert("RGB")
 
+    img = _taie_la(img, raport)
     if cu_logo:
         img = _apply_logo(img)
 

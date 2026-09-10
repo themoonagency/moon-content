@@ -53,22 +53,45 @@ CAI = [
 ]
 
 
+# Cele opt feluri de imagine din panou. Textul e ce ajunge in prompt.
+FELURI = {
+    "foto": "Fotografie editorială reală, ca dintr-un reportaj: lumină naturală, "
+            "adâncime mică de câmp, imperfecțiuni păstrate.",
+    "still": "Natură statică fotografiată de sus sau din lateral, obiecte reale, fără oameni.",
+    "ilustratie": "Ilustrație editorială desenată de mână, cu textură de hârtie și tușe "
+                  "vizibile — NU randare 3D, NU vectorial curat, NU „modern flat”.",
+    "editorial": "Fotografie editorială ca în reviste: compoziție construită, un singur subiect "
+                 "clar, spațiu gol lăsat dinadins în cadru.",
+    "minimal": "Minimal: UN singur obiect, fundal simplu și uniform, mult spațiu gol, "
+               "o singură sursă de lumină.",
+    "render3d": "Randare 3D curată, materiale mate, umbre moi, fără reflexii exagerate "
+                "și fără aspect de joc video.",
+    "abstract": "Forme și gradiente, fără obiecte recognoscibile — culoare, textură și "
+                "compoziție, atât.",
+    "colaj": "Colaj grafic: decupaje cu margini vizibile, straturi suprapuse, "
+             "hârtie texturată sub ele.",
+}
+
+LUMINA = {
+    "naturala": "lumină naturală de zi, dintr-o fereastră",
+    "calda": "lumină caldă, joasă, de apus",
+    "studio": "lumină de studio, egală, fără umbre dure",
+    "contrast": "contrast puternic, umbre adânci, o singură sursă",
+    "inchisa": "fundal închis, subiectul luminat punctual",
+}
+
+
 def _stil() -> str:
     """Stilul vizual al CLIENTULUI, nu al agenției. Înainte era codat dur
     «accente de roșu/coral pe fundal închis» — identitatea THE MOON — și îl
     primeau toți clienții, de la sala de fitness la magazinul de parfumuri.
     De aici veneau imaginile «prea tech»."""
     fel = (config.IMAGINE_STIL or "foto").strip().lower()
-    randuri = []
-    if fel == "still":
-        randuri.append("Natură statică fotografiată de sus sau din lateral, obiecte reale, "
-                       "fără oameni.")
-    elif fel == "ilustratie":
-        randuri.append("Ilustrație editorială desenată de mână, cu textură de hârtie și "
-                       "tușe vizibile — NU randare 3D, NU vectorial curat, NU „modern flat”.")
-    else:
-        randuri.append("Fotografie editorială reală, ca dintr-un reportaj: lumină naturală, "
-                       "adâncime mică de câmp, imperfecțiuni păstrate.")
+    randuri = [FELURI.get(fel) or FELURI["foto"]]
+
+    lumina = LUMINA.get((config.IMAGINE_LUMINA or "").strip().lower())
+    if lumina:
+        randuri.append(f"Lumina: {lumina}.")
 
     paleta = (config.IMAGINE_PALETA or "").strip()
     randuri.append(f"Paleta: {paleta}." if paleta
@@ -78,6 +101,30 @@ def _stil() -> str:
     if evita:
         randuri.append(f"Clientul nu vrea să apară: {evita}.")
     return " ".join(randuri)
+
+
+def _regula_text() -> str:
+    """Text pe poza de blog: implicit NU. Pe blog titlul e deja lângă imagine,
+    iar textul dublat arată prost în Google Imagini. Dacă omul îl cere, îl cerem
+    scurt și așezat, nu un paragraf peste poză."""
+    fel = (config.IMAGINE_TEXT_PE_POZA or "nu").strip().lower()
+    if fel == "titlu":
+        return ("- Un SINGUR rând de text pe imagine, maximum 6 cuvinte, scos din titlul "
+                "articolului, așezat într-o zonă goală a cadrului. Fără alt text.")
+    if fel == "titlu_sub":
+        return ("- Text pe imagine: un titlu de maximum 6 cuvinte și un singur rând sub el, "
+                "de maximum 10 cuvinte, într-o zonă goală a cadrului. Fără alt text.")
+    return "- Fără text, litere, cifre sau logo-uri în imagine."
+
+
+def _cerinte() -> str:
+    """Ce a scris clientul, cu cuvintele lui. Stă LA FINAL dinadins: e ultimul
+    lucru pe care îl citește modelul, deci bate listele bifate mai sus."""
+    cer = (config.IMAGINE_CERINTE or "").strip()
+    if not cer:
+        return ""
+    return ("\nCE A CERUT CLIENTUL, CU CUVINTELE LUI (bate tot ce scrie mai sus, "
+            "în afară de lista NU FOLOSI NICIODATĂ)\n" + cer[:1200])
 
 
 def _text(html: str, cate: int = 1400) -> str:
@@ -119,10 +166,11 @@ REGULI DE FORMĂ
 - Spui, în ordine: ce se vede (subiect + acțiune) · unde · un detaliu anume ·
   cadrul și obiectivul (ex. „shot on 35mm, waist-level, shallow depth of field”) ·
   lumina · paleta · starea.
-- Fără text, litere, cifre sau logo-uri în imagine.
+{_regula_text()}
 - Fără fețe de oameni recognoscibile: mâini, siluete, spatele cuiva, da.
 - Fără mărci, fără produse ale concurenței.
 - Răspunde DOAR cu paragraful. Fără ghilimele, fără explicații, fără „Prompt:”.
+{_cerinte()}
 """.strip()
 
 

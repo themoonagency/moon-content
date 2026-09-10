@@ -679,7 +679,34 @@ cer(not [x for x in graf2 if x["@type"] == "Person"],
     "fara autor real, semneaza firma — nu inventam un nume")
 config.AUTOR_NUME = "Felix Ionescu"
 
+# un articol bun are linkuri interne REALE, iar site-ul e citit
+config.SITE = [{"url": "https://themoonagency.ro/servicii", "titlu": "Servicii"},
+               {"url": "https://themoonagency.ro/meta-ads", "titlu": "Meta Ads"},
+               {"url": "https://themoonagency.ro/despre", "titlu": "Despre"}]
+config.CLIENT_CTA_LINK = "https://themoonagency.ro/contact"
+CIORNA_SEO["article_html"] = CIORNA_SEO["article_html"].replace(
+    "<a href='https://themoonagency.ro/contact'>contact</a>",
+    "<a href='https://themoonagency.ro/meta-ads'>Meta Ads</a>")
 cer(seo.controale(CIORNA_SEO) == [], "un articol bun trece toate verificarile", seo.controale(CIORNA_SEO))
+
+# indemnul e pus de NOI dupa generare — nu se pune la socoteala ca link intern
+doar_cta = dict(CIORNA_SEO, article_html=CIORNA_SEO["article_html"]
+                .replace("https://themoonagency.ro/servicii", "https://themoonagency.ro/contact")
+                .replace("https://themoonagency.ro/meta-ads", "https://themoonagency.ro/contact"))
+cer(any("link" in x for x in seo.controale(doar_cta)),
+    "un articol care are DOAR indemnul nu trece drept articol cu linkuri interne",
+    seo.controale(doar_cta))
+
+# fara site citit, mesajul spune CAUZA, nu simptomul
+_site_vechi = config.SITE
+config.SITE = []
+mesaje = seo.controale(doar_cta)
+cer(any("n-a fost citit" in x for x in mesaje),
+    "fara pagini citite, mesajul zice sa citesti site-ul, nu „vrem 3-5 linkuri”", mesaje)
+config.SITE = [{"url": "https://themoonagency.ro/servicii"}]
+cer(any("stim doar 1 pagini" in x for x in seo.controale(doar_cta)),
+    "cu prea putine pagini stiute, mesajul spune si asta", seo.controale(doar_cta))
+config.SITE = _site_vechi
 rau = dict(CIORNA_SEO, article_html="<h1>a</h1><h1>b</h1><p>In lumea de azi, totul se schimba.</p>",
            seo_title="T" * 80, meta_description="")
 p_rau = seo.controale(rau)
@@ -815,6 +842,19 @@ cer(bool(CERERI_IMAGINE_PROMPT),
     len(CERERI_IMAGINE_PROMPT))
 PANOU["clienti"][0]["flux"] = _cl_vechi
 PANOU["clienti"][0].pop("produs", None)
+
+# cate linkuri interne cerem depinde de cate pagini stim ca exista
+from content_gen import _pagini_site
+import re as _re
+def _cate(n):
+    config.SITE = [{"url": f"https://x.ro/p{i}", "titlu": f"P{i}"} for i in range(n)]
+    m = _re.search(r"Vreau (\S+) linkuri", _pagini_site())
+    return m.group(1) if m else None
+cer(_cate(6) == "3-5" and _cate(2) == "1-2" and _cate(1) == "un",
+    "nu cerem mai multe linkuri decat pagini stim — altfel modelul le inventeaza",
+    [_cate(6), _cate(2), _cate(1)])
+config.SITE = []
+cer(_pagini_site() == "", "fara pagini citite nu cerem deloc linkuri interne")
 
 cer(len(SCHELETE) >= 6, "avem cel putin sase forme de articol", len(SCHELETE))
 config.SCHELETE_RECENTE = [SCHELETE[0][0], SCHELETE[1][0], SCHELETE[2][0]]

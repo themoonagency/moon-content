@@ -191,11 +191,25 @@ def controale(ciorna: dict) -> list[str]:
             p.append(f"articolul incepe cu un cliseu („{d}…")
             break
 
-    # linkuri interne catre site-ul clientului
+    # Linkuri interne. Indemnul (CTA) il punem NOI dupa generare, deci nu se
+    # pune la socoteala: altfel un articol fara niciun link intern raporta 1.
     gazda = (config.CLIENT_DOMAIN or "").replace("https://", "").replace("http://", "").strip("/")
-    interne = len(re.findall(r'href=["\'][^"\']*' + re.escape(gazda), html, re.I)) if gazda else 0
-    if gazda and interne < 2:
-        p.append(f"doar {interne} link(uri) catre paginile clientului — vrem 3-5")
+    cta = (config.CLIENT_CTA_LINK or "").strip().rstrip("/")
+    toate = re.findall(r'href=["\']([^"\']*' + re.escape(gazda) + r'[^"\']*)["\']', html, re.I) if gazda else []
+    interne = [u for u in toate if u.rstrip("/") != cta]
+    # cate pagini reale stie motorul ca exista pe site-ul clientului
+    pagini = len([x for x in (config.SITE or []) if (x.get("url") or "").strip()])
+    if gazda and len(interne) < 2:
+        if pagini == 0:
+            # cauza adevarata, nu simptomul: fara pagini citite, promptul nici
+            # nu are voie sa ceara linkuri interne — ar iesi adrese inventate
+            p.append("site-ul clientului n-a fost citit, deci articolul n-are spre ce sa "
+                     "trimita: apasa Citeste site-ul in ecranul clientului")
+        elif pagini < 3:
+            p.append(f"doar {len(interne)} link(uri) interne, dar stim doar {pagini} pagini de pe site "
+                     "— mai citeste o data site-ul, ca sa aiba de unde alege")
+        else:
+            p.append(f"doar {len(interne)} link(uri) catre paginile clientului — vrem 3-5")
     externe = len(re.findall(r'href=["\']https?://(?!' + re.escape(gazda) + r')', html, re.I)) if gazda else 0
     if externe == 0:
         p.append("niciun link catre o sursa din afara")
