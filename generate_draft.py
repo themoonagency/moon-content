@@ -19,6 +19,7 @@ import traceback
 import panel
 from config import config
 import imagine_prompt
+import imagine_ig as imagine_ig_mod
 import seo
 from content_gen import CONSUM, curata_linkurile, generate_authority_draft
 from content_gen_catalog import genereaza_pentru_produs
@@ -180,6 +181,19 @@ def pentru_client(client: dict) -> None:
                           f"{continut.get('topic_title') or config.CLIENT_NICHE or 'subiectul articolului'}.")
         imagine, eroare_img = genereaza_imagine(prompt_img)
 
+    # Afișul de Instagram: a doua imagine, cu text mare pe ea. Se face doar dacă
+    # omul a bifat-o ȘI dacă Instagram e chiar în canalele slotului — altfel am
+    # plăti o generare în plus pentru o poză pe care n-o vede nimeni.
+    imagine_ig, prompt_ig = None, ""
+    if config.IG_SEPARATA and "ig" in config.CANALE:
+        prompt_ig = imagine_ig_mod.scrie(continut)
+        try:
+            imagine_ig = generate_image(prompt_ig, format_cerut=config.IG_FORMAT, cu_logo=False)
+            print("  imaginea de Instagram: afiș " + (config.IG_SABLON or "lista"))
+        except Exception as e:  # noqa: BLE001 — afișul nu merită să oprească postarea
+            print(f"  afișul de Instagram nu a ieșit ({str(e)[:120]}) — rămâne poza de blog")
+            imagine_ig = None
+
     draft_id = panel.creeaza_ciorna(config.CLIENT_ID, {
         "topic_title": continut["topic_title"],
         "angle": continut["angle"],
@@ -195,6 +209,7 @@ def pentru_client(client: dict) -> None:
         "seo_probleme": probleme_seo,
         # promptul se vede in panou: altfel nu poti judeca DE CE a iesit poza asa
         "image_prompt": continut.get("image_prompt") or "",
+        "image_prompt_ig": prompt_ig if imagine_ig else "",
         "produs_ext_id": (produs or {}).get("ext_id"),
         "idee_id": (config.IDEE or {}).get("id"),
         "canale": config.CANALE,
@@ -205,8 +220,9 @@ def pentru_client(client: dict) -> None:
         "calitate_imagine": config.OPENAI_IMAGE_QUALITY,
         "tokens_in": CONSUM["tokens_in"],
         "tokens_out": CONSUM["tokens_out"],
-        # poza luată ca atare din catalog nu costă nimic; cea pusă în scenă, da
-        "imagini": 1 if (imagine and poza_costa) else 0,
+        # poza luată ca atare din catalog nu costă nimic; cea pusă în scenă, da.
+        # Afișul de Instagram e o generare în plus, deci se numără separat.
+        "imagini": (1 if (imagine and poza_costa) else 0) + (1 if imagine_ig else 0),
     })
 
     if imagine:
@@ -218,6 +234,12 @@ def pentru_client(client: dict) -> None:
                                eroare=f"Imaginea nu a putut fi urcată: {str(e)[:200]}")
             imagine = None
             eroare_img = str(e)[:300]
+
+    if imagine_ig:
+        try:
+            panel.urca_imagine(draft_id, imagine_ig, fel="ig")
+        except Exception as e:  # noqa: BLE001 — Instagram cade înapoi pe poza de blog
+            print(f"  afișul de Instagram nu a putut fi urcat: {str(e)[:150]}")
 
     avertisment = ""
     if not imagine and ("ig" in config.CANALE or "fb" in config.CANALE):

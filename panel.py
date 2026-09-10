@@ -86,10 +86,12 @@ def actualizeaza(draft_id: str, **campuri) -> None:
     _cere("POST", f"/drafts/{draft_id}", json=campuri)
 
 
-def urca_imagine(draft_id: str, jpeg: bytes) -> str:
+def urca_imagine(draft_id: str, jpeg: bytes, fel: str = "") -> str:
     """Urcă imaginea în R2 și întoarce URL-ul public — Meta trebuie să o poată
-    descărca, iar panoul o arată la aprobare."""
+    descărca, iar panoul o arată la aprobare. `fel="ig"` urcă afișul de
+    Instagram, care stă separat de fotografia de blog."""
     date = _cere("POST", f"/image/{draft_id}", data=jpeg,
+                 params=({"fel": "ig"} if fel == "ig" else None),
                  headers={"Content-Type": "image/jpeg"})
     return date["url"]
 

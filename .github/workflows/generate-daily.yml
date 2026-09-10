@@ -22,7 +22,10 @@ on:
 # fluxul de publicare si pornirea din panou porneau trei rulari deodata, si
 # fiecare genera (si platea) aceeasi postare.
 concurrency:
-  group: moon-post-generare
+  # un grup PE CLIENT: „Genereaza acum" apasat pe mai multi clienti ruleaza in paralel.
+  # Cu un singur grup, GitHub tine un singur run in asteptare si le ANULA pe celelalte
+  # („Canceling since a higher priority waiting request exists", 11 sept). Dublurile le opreste lesa gen-<client>-<slot> din panou.
+  group: moon-post-generare-${{ inputs.client_id || 'programat' }}
   cancel-in-progress: false
 
 jobs:

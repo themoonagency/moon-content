@@ -13,6 +13,7 @@ Dacă apelul pică, rămâne promptul din generarea mare, deci nu blochează nim
 """
 
 from __future__ import annotations
+from datetime import date
 import re
 
 from config import config
@@ -31,6 +32,8 @@ INTERZISE = [
     "stock-photo smiles, staged teamwork around a table",
     "abstract 'digital transformation' backgrounds, binary code, matrix rain",
     "world maps with glowing connection lines",
+    "a notebook or notepad with a handwritten list, a pen and a cup of coffee on a "
+    "wooden desk — it has been used four times already, it is the new cliche",
     "anything that would work equally well for any other article",
 ]
 
@@ -38,19 +41,48 @@ INTERZISE = [
 # poză — răspunsul bun e aproape mereu un moment omenesc, într-un loc real, cu
 # obiecte care se pot atinge.
 CAI = [
-    "un MOMENT dintr-o zi de lucru reală, surprins la firul ierbii: mâinile "
-    "cuiva care face exact lucrul despre care e articolul, într-un loc concret "
-    "(o tejghea, un atelier, o bucătărie de restaurant, o parcare, un birou mic "
-    "și trăit, nu un open-space de catalog)",
-    "o NATURĂ STATICĂ cu obiecte adevărate care spun povestea: hârtii, un "
-    "carnet, o factură, ambalaje, unelte, o cană pe jumătate băută — aranjate ca "
-    "și cum tocmai a plecat cineva de acolo",
-    "o METAFORĂ FIZICĂ făcută din lucruri reale, fotografiată ca atare (nu "
-    "desenată, nu randată): două grămezi inegale, un raft gol lângă unul plin, "
-    "un ceas lăsat pe masă lângă un teanc de comenzi",
-    "un DETALIU foarte apropiat dintr-un obiect din poveste, cu textură: "
-    "hârtie, lemn, metal zgâriat, un ecran stins care reflectă camera",
+    ("moment", "un MOMENT dintr-o zi de lucru reală, surprins la firul ierbii: mâinile "
+               "cuiva care face exact lucrul despre care e articolul, într-un loc concret "
+               "(o tejghea, un atelier, o bucătărie de restaurant, o parcare, un birou mic "
+               "și trăit, nu un open-space de catalog)"),
+    ("natura-statica", "o NATURĂ STATICĂ cu obiecte adevărate care spun povestea: hârtii, "
+                       "ambalaje, unelte, o ladă, o etichetă ruptă — aranjate ca și cum "
+                       "tocmai a plecat cineva de acolo. NU pe un birou și NU cu un carnet."),
+    ("metafora", "o METAFORĂ FIZICĂ făcută din lucruri reale, fotografiată ca atare (nu "
+                 "desenată, nu randată): două grămezi inegale, un raft gol lângă unul plin, "
+                 "un ceas lăsat pe masă lângă un teanc de comenzi"),
+    ("detaliu", "un DETALIU foarte apropiat dintr-un obiect din poveste, cu textură: "
+                "hârtie, lemn, metal zgâriat, un ecran stins care reflectă camera"),
+    ("locul-gol", "LOCUL în care se întâmplă povestea, gol, fotografiat larg: un depozit, "
+                  "o rampă de marfă, o vitrină noaptea, un hol, o curte — fără oameni și "
+                  "fără obiecte puse anume, doar locul așa cum e"),
+    ("de-sus", "SCENA VĂZUTĂ DE SUS, de la înălțimea unui om în picioare: o masă de lucru "
+               "întreagă, un tejghea cu tot ce e pe ea, o podea cu urme — plan larg, nu "
+               "prim-plan, cu spațiu în jur"),
+    ("in-miscare", "CEVA ÎN MIȘCARE, prins cu o urmă de blur: o ușă care se închide, o mână "
+                   "care întinde o pungă, o roabă împinsă, hârtii ridicate de curent"),
 ]
+
+
+def _cale() -> tuple:
+    """Aceeași rotație ca la scheletul articolului. Lăsat să aleagă singur,
+    modelul lua de fiecare dată calea cea mai sigură — de-aia ieșeau patru poze
+    la rând cu un carnet pe un birou de lemn. Alegem NOI, și ocolim ce s-a
+    folosit ultima oară."""
+    i = (date.today().toordinal() + int(config.CLIENT_ID or 0)) % len(CAI)
+    return CAI[i]
+
+
+def _deja_vazute() -> str:
+    """Scenele ultimelor poze ale clientului. Blocul ăsta e singurul lucru care
+    știe ce a mai ieșit; fără el fiecare generare pornește de la zero și nimeni
+    nu observă că a nimerit a cincea oară în același loc."""
+    vechi = [str(x).strip() for x in (config.IMAGINI_RECENTE or []) if str(x).strip()]
+    if not vechi:
+        return ""
+    return ("\n\nPOZELE ANTERIOARE ALE ACESTUI CLIENT (nu repeta scena, locul, obiectul "
+            "principal sau unghiul din niciuna):\n"
+            + "\n".join("- " + x[:180] for x in vechi[:6]))
 
 
 # Cele opt feluri de imagine din panou. Textul e ce ajunge in prompt.
@@ -134,6 +166,7 @@ def _text(html: str, cate: int = 1400) -> str:
 def cere(continut: dict) -> str:
     """Cererea trimisă modelului. Separată, ca s-o pot testa fără să dau bani."""
     nisa = config.CLIENT_NICHE or "serviciile clientului"
+    nume_cale, forma_cale = _cale()
     return f"""
 Ești fotoeditor la o revistă de business. Alegi imaginea care însoțește articolul
 de mai jos. NU scrii articolul — doar alegi ce se vede în poză.
@@ -149,8 +182,8 @@ CUM ALEGI
    cineva, ce câștigă. Imaginea ilustrează ASTA, nu subiectul în general.
    Un articol despre costuri nu arată „bani”, arată momentul în care cineva se
    uită la un preț și se oprește.
-2. Alege UNA dintre căile astea (nu le amesteca):
-{chr(10).join('   - ' + c for c in CAI)}
+2. CALEA DE AZI E ALEASĂ, nu o schimbi și nu o amesteci cu alta: {nume_cale}
+   {forma_cale}
 3. Trebuie să fie o scenă care s-ar putea fotografia AZI, cu un aparat, într-un
    loc care există. Dacă ai nevoie de efecte ca să se înțeleagă, ai ales greșit.
 4. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
@@ -170,6 +203,7 @@ REGULI DE FORMĂ
 - Fără fețe de oameni recognoscibile: mâini, siluete, spatele cuiva, da.
 - Fără mărci, fără produse ale concurenței.
 - Răspunde DOAR cu paragraful. Fără ghilimele, fără explicații, fără „Prompt:”.
+{_deja_vazute()}
 {_cerinte()}
 """.strip()
 
@@ -190,6 +224,13 @@ def _pare_slab(prompt: str) -> list:
     ]:
         if cuv in t:
             gasite.append(eticheta)
+    # Cliseul care s-a nascut chiar din reparatia anterioara: carnetul cu lista
+    # scrisa de mana, pixul si cana de cafea pe un birou de lemn. Nu e „glowing
+    # hologram", deci trecea de toate verificarile — dar a iesit de patru ori la
+    # rand si asta se vede pe un grid de Instagram mai tare decat orice cliseu.
+    if ("notebook" in t or "notepad" in t or "journal" in t) and (
+            "desk" in t or "coffee" in t or "mug" in t or "pen " in t):
+        gasite.append("carnet pe birou (deja folosit)")
     if len(t.split()) < 25:
         gasite.append("prea scurt")
     return gasite
@@ -204,8 +245,8 @@ def scrie(continut: dict, cheama) -> str:
     for incercare in range(2):
         cerere = intrebare if incercare == 0 else (
             intrebare + "\n\nÎNCERCAREA ANTERIOARĂ A FOST RESPINSĂ pentru că folosea: "
-            + ", ".join(_pare_slab(ultim)) + ". Alege altă cale din lista de mai sus, "
-            "cu obiecte fizice și un loc real."
+            + ", ".join(_pare_slab(ultim)) + ". Rămâi pe calea cerută, dar schimbă "
+            "complet scena: alt loc, alte obiecte, alt unghi — fizice și reale."
         )
         try:
             date = cheama({

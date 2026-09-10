@@ -76,6 +76,7 @@ class Config:
     OPENAI_IMAGE_SIZE = "1536x1024"
 
     SCHELETE_RECENTE: list = []
+    IMAGINI_RECENTE: list = []
     # stilul vizual e AL CLIENTULUI, nu al agentiei
     IMAGINE_STIL = "foto"
     IMAGINE_PALETA = ""
@@ -180,6 +181,9 @@ class Config:
         self.SITE = list(client.get("site") or [])
         # formele ultimelor articole, ca sa nu iasa doua la fel una dupa alta
         self.SCHELETE_RECENTE = list(client.get("schelete_recente") or [])
+        # si scenele ultimelor poze, din acelasi motiv: sa nu iasa a cincea oara
+        # acelasi carnet pe un birou de lemn
+        self.IMAGINI_RECENTE = list(client.get("imagini_recente") or [])
         # cine semneaza articolele — conteaza si pentru Google, si pentru motoarele cu AI
         self.AUTOR_NUME = c.get("autor_nume") or ""
         self.AUTOR_URL = c.get("autor_url") or ""

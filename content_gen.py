@@ -24,6 +24,7 @@ import requests
 
 from config import config
 import panel
+import retea
 
 def _gemini_url() -> str:
     # se calculeaza la fiecare apel: modelul si cheia sunt ale clientului curent
@@ -341,7 +342,7 @@ CONSUM = {"tokens_in": 0, "tokens_out": 0}
 def _repair_json(broken_text: str) -> dict:
     payload = {
         "contents": [{"role": "user", "parts": [{"text": REPAIR_PROMPT.format(broken=broken_text)}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": IESIRE_PORNIRE},
     }
     data = cheama_modelul(payload)
     try:
@@ -357,6 +358,19 @@ def _aduna_consum(data: dict) -> None:
     CONSUM["tokens_out"] += int(u.get("candidatesTokenCount") or 0) + int(u.get("thoughtsTokenCount") or 0)
 
 
+class TaiatLaLimita(RuntimeError):
+    """Raspunsul s-a oprit fiindca modelul a ramas fara spatiu de iesire.
+    E singurul esec pe care are rost sa-l reincercam cu MAI MULT loc — de-aia
+    are clasa lui si nu e un RuntimeError oarecare."""
+
+
+# Cat spatiu de iesire cerem, si pana unde urcam daca nu incape. Modelele de
+# „gandire" consuma din acelasi buget si pentru gandit, nu doar pentru scris:
+# de-aia 8192 se termina uneori inainte ca articolul sa fie gata.
+IESIRE_PORNIRE = 16384
+IESIRE_PLAFON = 65536
+
+
 def _verifica_intreg_gemini(data: dict) -> None:
     """Un raspuns taiat la limita de tokeni iese ca JSON invalid; reparatia il
     inchide frumos si obtinem un articol pe jumatate, care trece de toate
@@ -364,8 +378,8 @@ def _verifica_intreg_gemini(data: dict) -> None:
     c = ((data or {}).get("candidates") or [{}])[0] or {}
     motiv = c.get("finishReason") or c.get("finish_reason")
     if motiv in ("MAX_TOKENS", "LENGTH"):
-        raise RuntimeError("Modelul a ramas fara spatiu si a taiat articolul in doua "
-                           "(finishReason=MAX_TOKENS). Nu publicam jumatati.")
+        raise TaiatLaLimita("Modelul a ramas fara spatiu si a taiat articolul in doua "
+                            "(finishReason=MAX_TOKENS). Nu publicam jumatati.")
     if motiv in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION"):
         raise RuntimeError(f"Modelul a refuzat sa scrie pe subiectul asta ({motiv}).")
 
@@ -376,7 +390,7 @@ def _call_gemini(payload: dict, max_retries: int = 4) -> dict:
     delay = 8
     last_error = None
     for attempt in range(max_retries):
-        resp = requests.post(_gemini_url(), json=payload, timeout=90)
+        resp = retea.post(_gemini_url(), json=payload, timeout=90)
         if resp.status_code == 429:
             last_error = resp
             if attempt < max_retries - 1:      # la ultima incercare n-are rost sa mai dormim
@@ -386,7 +400,20 @@ def _call_gemini(payload: dict, max_retries: int = 4) -> dict:
         resp.raise_for_status()
         data = resp.json()
         _aduna_consum(data)
-        _verifica_intreg_gemini(data)
+        try:
+            _verifica_intreg_gemini(data)
+        except TaiatLaLimita:
+            # Nu e o eroare a modelului, e o cerere prea stramta. Ii facem loc
+            # si mai cerem o data. Inainte, un articol lung insemna zero ciorne
+            # in ziua aia, fara ca nimeni sa afle de ce.
+            gc = payload.setdefault("generationConfig", {})
+            vechi = int(gc.get("maxOutputTokens") or IESIRE_PORNIRE)
+            if vechi < IESIRE_PLAFON and attempt < max_retries - 1:
+                gc["maxOutputTokens"] = min(IESIRE_PLAFON, vechi * 2)
+                print(f"  articolul n-a incaput in {vechi} tokeni — mai cer o data "
+                      f"cu {gc['maxOutputTokens']}")
+                continue
+            raise
         return data
     if last_error is None:
         raise RuntimeError("Nicio incercare de apel — verifica numarul de reincercari.")
@@ -440,7 +467,7 @@ def _call_openai(payload: dict, max_retries: int = 4) -> dict:
     delay = 8
     last_error = None
     for attempt in range(max_retries):
-        resp = requests.post(OPENAI_RESPONSES_URL, headers=antet, json=cerere, timeout=180)
+        resp = retea.post(OPENAI_RESPONSES_URL, headers=antet, json=cerere, timeout=180)
         if resp.status_code == 429:
             last_error = resp
             if attempt < max_retries - 1:      # la ultima incercare n-are rost sa mai dormim
@@ -460,6 +487,13 @@ def _call_openai(payload: dict, max_retries: int = 4) -> dict:
         # aceeasi grija ca la Gemini: raspunsul taiat nu se carpeste, se refuza
         if data.get("incomplete_details") or (data.get("status") and data["status"] != "completed"):
             motiv = (data.get("incomplete_details") or {}).get("reason") or data.get("status")
+            if motiv == "max_output_tokens" and attempt < max_retries - 1:
+                vechi = int(cerere.get("max_output_tokens") or IESIRE_PORNIRE)
+                if vechi < IESIRE_PLAFON:
+                    cerere["max_output_tokens"] = min(IESIRE_PLAFON, vechi * 2)
+                    print(f"  articolul n-a incaput in {vechi} tokeni — mai cer o data "
+                          f"cu {cerere['max_output_tokens']}")
+                    continue
             raise RuntimeError(f"Modelul nu a terminat articolul ({motiv}). Nu publicam jumatati.")
         text = _text_din_openai(data)
         if not text.strip():
@@ -498,7 +532,7 @@ def generate_authority_draft() -> dict:
         "tools": [{"google_search": {}}],
         "generationConfig": {
             "temperature": 0.8,
-            "maxOutputTokens": 8192,
+            "maxOutputTokens": IESIRE_PORNIRE,
         },
     }
 

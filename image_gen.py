@@ -13,6 +13,8 @@ import io
 import requests
 from PIL import Image
 
+import retea
+
 from config import config
 
 OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations"
@@ -73,14 +75,14 @@ def _taie_la(img, raport: float | None):
     return img.crop((0, y, lat, y + nou))
 
 
-def _gemini_imagine(intrare: list, size: str | None = None) -> bytes:
+def _gemini_imagine(intrare: list, size: str | None = None, proportie: str | None = None) -> bytes:
     """Un apel la Interactions API. `intrare` e lista de bucati: text si,
     optional, poza de pornire (pentru compunerea din produs)."""
-    resp = requests.post(
+    resp = retea.post(
         GEMINI_INTERACTIONS_URL,
         headers={"x-goog-api-key": config.GEMINI_API_KEY, "Content-Type": "application/json"},
         json={"model": config.MODEL_IMAGINE, "input": intrare,
-              "response_format": _gemini_format(size)},
+              "response_format": _gemini_format(size, proportie)},
         timeout=180,
     )
     resp.raise_for_status()
@@ -213,7 +215,7 @@ def compune_din_produs(poza: bytes, prompt: str, size: str | None = None) -> byt
         "quality": (None, _CALITATE.get(config.OPENAI_IMAGE_QUALITY, "high")),
         "n": (None, "1"),
     }
-    resp = requests.post(
+    resp = retea.post(
         OPENAI_EDITS_URL,
         headers={"Authorization": f"Bearer {config.OPENAI_API_KEY}"},
         files=fisiere,
@@ -234,9 +236,16 @@ def _ca_png(date: bytes) -> bytes:
     return out.getvalue()
 
 
-def generate_image(prompt: str, size: str | None = None) -> bytes:
+def generate_image(prompt: str, size: str | None = None,
+                   format_cerut: str | None = None, cu_logo: bool = True) -> bytes:
+    """`format_cerut` e cheia din panou („16:9", „4:5", …). Dacă lipsește, se
+    folosește mărimea din setările generale, ca înainte. `cu_logo=False` pentru
+    imaginile care își pun singure brandul (afișul de Instagram)."""
+    marime, proportie, raport = forma(format_cerut) if format_cerut else (None, None, None)
     if config.FURNIZOR_IMAGINE == "gemini":
-        return _png_to_jpeg(_gemini_imagine([{"type": "text", "text": prompt}], size))
+        return _png_to_jpeg(
+            _gemini_imagine([{"type": "text", "text": prompt}], size, proportie),
+            cu_logo=cu_logo, raport=raport)
     headers = {
         "Authorization": f"Bearer {config.OPENAI_API_KEY}",
         "Content-Type": "application/json",
@@ -244,13 +253,13 @@ def generate_image(prompt: str, size: str | None = None) -> bytes:
     payload = {
         "model": config.MODEL_IMAGINE,
         "prompt": prompt,
-        "size": size or config.OPENAI_IMAGE_SIZE,
+        "size": marime or size or config.OPENAI_IMAGE_SIZE,
         "quality": _CALITATE.get(config.OPENAI_IMAGE_QUALITY, "high"),
         "n": 1,
     }
-    resp = requests.post(OPENAI_IMAGES_URL, headers=headers, json=payload, timeout=120)
+    resp = retea.post(OPENAI_IMAGES_URL, headers=headers, json=payload, timeout=120)
     resp.raise_for_status()
     data = resp.json()
     b64 = data["data"][0]["b64_json"]
     png_bytes = base64.b64decode(b64)
-    return _png_to_jpeg(png_bytes)
+    return _png_to_jpeg(png_bytes, cu_logo=cu_logo, raport=raport)

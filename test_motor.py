@@ -21,6 +21,9 @@ import requests
 from PIL import Image
 
 PICA = []
+MARIMI_CERUTE: list = []
+FB_POZE: list = []
+IG_POZE: list = []
 
 
 def cer(cond, nume, extra=None):
@@ -102,9 +105,13 @@ def fals_request(metoda, url, **kw):
         return Raspuns({"ok": True, "ciorne": [d for d in PANOU["drafts"].values() if d.get("stare") == stare]})
     if "/api/cron/image/" in url and metoda == "POST":
         did = url.rsplit("/", 1)[-1]
-        PANOU["imagini"][did] = kw.get("data")
-        PANOU["drafts"].setdefault(did, {}).update({"are_imagine": True, "imagine_key": did + ".jpg"})
-        return Raspuns({"ok": True, "url": f"https://post.exemplu.ro/img/{did}.jpg"})
+        eIg = (kw.get("params") or {}).get("fel") == "ig"
+        PANOU["imagini"][did + ("-ig" if eIg else "")] = kw.get("data")
+        PANOU["drafts"].setdefault(did, {}).update(
+            {"are_imagine_ig": True, "imagine_ig_key": did + "-ig.jpg"} if eIg
+            else {"are_imagine": True, "imagine_key": did + ".jpg"})
+        cheie = did + ("-ig" if eIg else "")
+        return Raspuns({"ok": True, "url": f"https://post.exemplu.ro/img/{cheie}.jpg"})
     if "poza-produs" in url and metoda == "GET":
         b = io.BytesIO()
         Image.new("RGB", (400, 400), (200, 40, 60)).save(b, format="JPEG")
@@ -167,7 +174,9 @@ def fals_request(metoda, url, **kw):
             return Raspuns({"data": [{"b64_json": _png((30, 30, 40))}]})
         corp = kw.get("json") or {}
         assert corp.get("quality") == "high", f"calitatea nu ajunge la OpenAI: {corp.get('quality')}"
-        assert corp.get("size") == "1536x1024", f"marimea nu ajunge la OpenAI: {corp.get('size')}"
+        MARIMI_CERUTE.append(corp.get("size"))
+        assert corp.get("size") in ("1536x1024", "1024x1024", "1024x1536"), \
+            f"marime necunoscuta ceruta de la OpenAI: {corp.get('size')}"
         return Raspuns({"data": [{"b64_json": _png()}]})
 
     # --- WordPress ---
@@ -194,11 +203,13 @@ def fals_request(metoda, url, **kw):
         if url.endswith(("/photos",)):
             FB_TEXTE.append(str((kw.get("data") or kw.get("json") or {}).get("caption")
                                 or (kw.get("data") or {}).get("message") or ""))
+            FB_POZE.append(str((kw.get("data") or kw.get("json") or {}).get("url") or ""))
             return Raspuns({"id": "1", "post_id": "p1"})
         if url.endswith("/feed"):
             return Raspuns({"id": "p2"})
         if url.endswith("/media"):
             IG_TEXTE.append(str((kw.get("data") or kw.get("json") or {}).get("caption") or ""))
+            IG_POZE.append(str((kw.get("data") or kw.get("json") or {}).get("image_url") or ""))
             return Raspuns({"id": "c1"})
         if url.endswith("/media_publish"):
             return Raspuns({"id": "m1"})
@@ -325,6 +336,53 @@ except SystemExit:
     pass
 cer(not any("logo-1.png" in u for _, u in APELURI),
     "fara logo pus, nu se pune logoul altcuiva pe imagine")
+
+# 6b. afisul de Instagram: a doua imagine, facuta doar daca omul a bifat-o
+image_gen._LOGO_CACHE.clear()
+PANOU["clienti"][0]["config"]["logo_url"] = "https://post.exemplu.ro/img/logo-1.png"
+PANOU["clienti"][0]["canale"] = ["wp", "fb", "ig"]
+PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+dIG = list(PANOU["drafts"].values())[0]
+cer(not dIG.get("are_imagine_ig"),
+    "fara bifa, nu se face a doua imagine si nu se plateste o generare in plus")
+
+PANOU["clienti"][0]["config"].update({
+    "ig_separata": True, "ig_sablon": "lista", "ig_format": "4:5",
+    "ig_banda": True, "ig_handle": "@moon · themoonagency.ro"})
+image_gen._LOGO_CACHE.clear()
+PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+dIG = list(PANOU["drafts"].values())[0]
+did = dIG["id"]
+cer(dIG.get("are_imagine") is True and dIG.get("are_imagine_ig") is True,
+    "cu bifa pusa, ciorna are AMANDOUA imaginile", [dIG.get("are_imagine"), dIG.get("are_imagine_ig")])
+cer(dIG.get("imagini") == 2, "si se factureaza doua generari, nu una", dIG.get("imagini"))
+cer("GRAPHIC DESIGN" in (dIG.get("image_prompt_ig") or ""),
+    "promptul afisului se salveaza pe ciorna, ca sa se vada in panou")
+_ig = Image.open(io.BytesIO(PANOU["imagini"][did + "-ig"]))
+cer(abs(_ig.size[0] / _ig.size[1] - 0.8) < 0.03,
+    "afisul chiar iese in 4:5, nu lat ca poza de blog", _ig.size)
+_bl = Image.open(io.BytesIO(PANOU["imagini"][did]))
+cer(_bl.size != _ig.size, "poza de blog ramane a ei, in formatul ei", [_bl.size, _ig.size])
+
+# la publicare, Instagram ia afisul, nu poza de blog
+dIG["stare"] = "aprobat"
+APELURI.clear()
+check_approvals.main()
+cer(IG_POZE and IG_POZE[-1].endswith("-ig.jpg"),
+    "Instagram primeste afisul (-ig.jpg), nu poza de blog", IG_POZE[-2:])
+cer(FB_POZE and not FB_POZE[-1].endswith("-ig.jpg"),
+    "Facebook ramane pe poza de blog", FB_POZE[-2:])
+cer("1024x1536" in MARIMI_CERUTE, "afisul se cere in marimea portret", MARIMI_CERUTE[-3:])
+
+PANOU["clienti"][0]["config"].update({"ig_separata": False, "ig_banda": False})
 
 # 7. Profilul Google: se publica doar daca e in canalele ciornei
 import image_gen
@@ -786,6 +844,126 @@ config.IMAGINE_EVITA = "oameni in costum"
 cer("oameni in costum" in imagine_prompt.cere(CIORNA_IMG), "ce nu vrea clientul ajunge in cerere")
 config.IMAGINE_STIL, config.IMAGINE_PALETA, config.IMAGINE_EVITA = "foto", "", ""
 
+# --- setarile noi de imagine: lumina, format, text pe poza, cerintele omului ---
+config.IMAGINE_STIL = "editorial"
+cer("ca în reviste" in imagine_prompt.cere(CIORNA_IMG),
+    "felul „editorial\" are textul lui, nu cade pe fotografia implicita")
+config.IMAGINE_STIL = "minimal"
+cer("UN singur obiect" in imagine_prompt.cere(CIORNA_IMG), "si felul „minimal\"")
+config.IMAGINE_LUMINA = "calda"
+cer("de apus" in imagine_prompt.cere(CIORNA_IMG), "lumina aleasa ajunge in cerere")
+config.IMAGINE_LUMINA = ""
+cer("Lumina:" not in imagine_prompt.cere(CIORNA_IMG),
+    "fara lumina aleasa, nu inventam una")
+
+# textul pe poza de blog e implicit OPRIT — pe blog titlul e deja langa imagine
+cer("Fără text, litere" in imagine_prompt.cere(CIORNA_IMG), "implicit, fara text pe poza de blog")
+config.IMAGINE_TEXT_PE_POZA = "titlu"
+c2 = imagine_prompt.cere(CIORNA_IMG)
+cer("SINGUR rând de text" in c2 and "Fără text, litere" not in c2,
+    "daca omul cere titlu pe poza, regula se schimba, nu se adauga peste")
+config.IMAGINE_TEXT_PE_POZA = "nu"
+
+# cerintele scrise de client stau LA FINAL si bat listele bifate
+config.IMAGINE_CERINTE = "Masina pe elevator, in atelier, nu in showroom."
+c3 = imagine_prompt.cere(CIORNA_IMG)
+cer("Masina pe elevator" in c3, "cerintele clientului ajung in prompt")
+cer(c3.index("Masina pe elevator") > c3.index("STILUL CLIENTULUI"),
+    "si stau DUPA stil, ca sa fie ultimul lucru citit")
+cer("bate tot ce scrie mai sus" in c3, "si i se spune ca bat restul")
+config.IMAGINE_CERINTE = ""
+config.IMAGINE_STIL = "foto"
+
+# --- ca sa nu iasa a cincea oara acelasi carnet pe un birou de lemn ---
+# Calea nu se mai alege de model (alegea mereu cea mai sigura), o alegem noi si
+# se roteste. Fara asta, patru poze la rand aratau la fel pe grid.
+cer(len(imagine_prompt.CAI) >= 6, "avem cel putin sase cai de imagine", len(imagine_prompt.CAI))
+_cid = config.CLIENT_ID
+_cai = set()
+for _i in range(1, 40):
+    config.CLIENT_ID = _i
+    _cai.add(imagine_prompt._cale()[0])
+config.CLIENT_ID = _cid
+cer(len(_cai) == len(imagine_prompt.CAI), "calea se roteste intre clienti", sorted(_cai))
+_c4 = imagine_prompt.cere(CIORNA_IMG)
+cer("CALEA DE AZI E ALEASĂ" in _c4 and _c4.count("MOMENT dintr-o zi") + _c4.count("NATURĂ STATICĂ")
+    + _c4.count("METAFORĂ FIZICĂ") + _c4.count("DETALIU foarte") + _c4.count("LOCUL în care")
+    + _c4.count("SCENA VĂZUTĂ") + _c4.count("CEVA ÎN MIȘCARE") == 1,
+    "si in prompt intra o SINGURA cale, nu lista de patru din care alege el")
+
+# scenele pozelor anterioare intra in cerere, ca sa nu se repete
+config.IMAGINI_RECENTE = ["A worn notebook with a handwritten list and a pen on a wooden desk"]
+_c5 = imagine_prompt.cere(CIORNA_IMG)
+cer("POZELE ANTERIOARE" in _c5 and "handwritten list" in _c5,
+    "ultimele poze ale clientului intra in cerere, ca sa nu le repete")
+config.IMAGINI_RECENTE = []
+cer("POZELE ANTERIOARE" not in imagine_prompt.cere(CIORNA_IMG),
+    "iar la primul articol nu inventam un istoric")
+
+# carnetul pe birou e acum el insusi cliseu si se prinde inainte sa se deseneze
+cer("carnet pe birou (deja folosit)" in imagine_prompt._pare_slab(
+    "A worn notebook with a handwritten list, a pen and a cup of coffee on a scratched "
+    "wooden desk, warm afternoon light coming in sideways, shot on 35mm, shallow depth."),
+    "carnetul pe birou e prins ca cliseu, desi n-are niciun cuvant interzis")
+cer(not imagine_prompt._pare_slab(
+    "A loading ramp at the back of a small warehouse at dusk, one pallet still wrapped and "
+    "three already opened, tyre marks on the wet concrete, shot on 35mm from waist level, "
+    "low sideways light, muted greys and a single orange strap."),
+    "dar o scena chiar diferita trece",
+    imagine_prompt._pare_slab("A loading ramp at the back of a small warehouse at dusk, one "
+    "pallet still wrapped and three already opened, tyre marks on the wet concrete, shot on "
+    "35mm from waist level, low sideways light, muted greys and a single orange strap."))
+
+# --- formatul si taierea ---
+import image_gen
+cer(image_gen.forma("4:5")[0] == "1024x1536", "4:5 cere de la OpenAI marimea portret")
+cer(image_gen.forma("16:9")[1] == "16:9", "iar de la Gemini proportia ceruta, ca atare")
+cer(image_gen.forma("aiurea")[1] == "3:2", "un format necunoscut cade pe 3:2, nu crapa")
+_lat = Image.new("RGB", (1536, 1024), (10, 10, 10))
+cer(abs(image_gen._taie_la(_lat, 4 / 5).size[0] / image_gen._taie_la(_lat, 4 / 5).size[1] - 0.8) < 0.02,
+    "poza lata se taie pe centru la 4:5, nu ajunge cu benzi pe Instagram",
+    image_gen._taie_la(_lat, 4 / 5).size)
+cer(image_gen._taie_la(_lat, None).size == (1536, 1024), "fara proportie ceruta, poza ramane cum e")
+
+# --- logoul: coltul si marimea vin din panou ---
+config.LOGO_URL = ""
+cer(image_gen._apply_logo(_lat).size == (1536, 1024), "fara logo pus, poza ramane neatinsa")
+config.IMAGINE_LOGO_LOC = "fara"
+cer(image_gen._apply_logo(_lat) is _lat, "„fara logo\" nici nu incearca sa-l ia")
+config.IMAGINE_LOGO_LOC = "dreapta-jos"
+
+# --- afisul de Instagram ---
+import imagine_ig
+config.IG_SABLON, config.IG_TEXT_CAT, config.IG_FUNDAL = "lista", "mediu", "inchis"
+config.IG_ACCENT, config.IG_BANDA, config.IG_HANDLE = "#ff2f4d", True, "@atelier · exemplu.ro"
+CIORNA_IG = {"seo_title": "Cat costa reclamele pe TikTok in 2026",
+             "article_html": "<h2>Bugetul minim</h2><p>x</p><h2>Cine plateste mai mult</h2>"
+                             "<p>y</p><h2>Ce se schimba in 2026</h2><p>z</p>"}
+cig = imagine_ig.cere(CIORNA_IG)
+cer("GRAPHIC DESIGN task, not a photograph" in cig,
+    "afisul cere design, nu fotografie — altfel iese tot o poza")
+cer("Cat costa reclamele pe TikTok in 2026" in cig, "titlul articolului se scrie PE imagine")
+cer("Bugetul minim" in cig and "Ce se schimba in 2026" in cig,
+    "punctele se scot din H2-urile articolului, nu le scrie omul")
+cer("@atelier · exemplu.ro" in cig, "banda de brand poarta ce a scris clientul")
+cer("#ff2f4d" in cig, "culoarea de accent ajunge in cerere")
+cer("diacritics" in cig, "i se cere sa pastreze diacriticele — altfel iese „Cat costa\" fara ele")
+
+config.IG_TEXT_CAT = "putin"
+cer("Point 1" not in imagine_ig.cere(CIORNA_IG), "pe „putin text\" ramane doar titlul")
+config.IG_TEXT_CAT = "mult"
+cer(imagine_ig.cere(CIORNA_IG).count("Point ") >= 3,
+    "pe „mult text\" se cer mai multe puncte")
+config.IG_TEXT_CAT = "mediu"
+config.IG_BANDA = False
+cer("brand band" not in imagine_ig.cere(CIORNA_IG), "fara bifa, nu punem banda de brand")
+config.IG_BANDA = True
+config.IG_CERINTE = "Fara preturi pe poza."
+cig2 = imagine_ig.cere(CIORNA_IG)
+cer("Fara preturi pe poza." in cig2 and cig2.index("Fara preturi") > cig2.index("STYLE"),
+    "cerintele pentru Instagram stau tot la final")
+config.IG_CERINTE = ""
+
 # un prompt cu clisee e respins si se mai cere o data
 apeluri = []
 def _fals(payload, raspunsuri=["A laptop on a desk showing glowing dashboards and charts.",
@@ -868,11 +1046,45 @@ cer(len(forme) > 1, "forma chiar se roteste intre clienti", sorted(forme))
 config.SCHELETE_RECENTE = []
 
 pr = _system_prompt()
-cer("primele 40-60 de cuvinte" in pr, "promptul cere raspunsul sus de tot")
+cer("primele 40-60 de cuvinte" in pr.lower(), "promptul cere raspunsul sus de tot")  # .lower(): in prompt scrie „Primele", cu majuscula
 cer("se ține singură" in pr or "se ține singur" in pr or "SE ȚINE SINGURĂ" in pr,
     "promptul cere sectiuni care se inteleg scoase din pagina")
 cer("In lumea de azi" in pr, "promptul interzice deschiderile-cliseu pe nume")
 cer("nu le-ai văzut" in pr, "promptul interzice cifrele si sursele inventate")
+
+# reteaua care cade o secunda nu mai inseamna zero ciorne in ziua aia
+import retea
+retea.PAUZA_PORNIRE = 0
+_vechi_post = requests.post
+_cazuri = {"n": 0}
+def _post_care_cade(url, **kw):
+    _cazuri["n"] += 1
+    if _cazuri["n"] == 1:
+        raise requests.ConnectionError("Remote end closed connection without response")
+    return _vechi_post(url, **kw)
+requests.post = _post_care_cade
+try:
+    r = retea.post("https://generativelanguage.googleapis.com/x", json={})
+    a_reusit = r is not None
+except Exception:
+    a_reusit = False
+requests.post = _vechi_post
+cer(a_reusit and _cazuri["n"] == 2,
+    "o conexiune cazuta se reincearca, nu opreste generarea", _cazuri["n"])
+
+_cazuri["n"] = 0
+def _post_mereu_cade(url, **kw):
+    _cazuri["n"] += 1
+    raise requests.ConnectionError("cade mereu")
+requests.post = _post_mereu_cade
+try:
+    retea.post("https://x/y", json={})
+    a_ridicat = False
+except requests.ConnectionError:
+    a_ridicat = True
+requests.post = _vechi_post
+cer(a_ridicat and _cazuri["n"] == retea.INCERCARI,
+    "dar nu incercam la nesfarsit dupa un furnizor chiar cazut", _cazuri["n"])
 
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)

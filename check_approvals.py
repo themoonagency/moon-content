@@ -54,6 +54,16 @@ def _adresa_imagine(ciorna: dict) -> str | None:
     return f"{config.PANEL_URL}/img/{cheie}"
 
 
+def _adresa_imagine_ig(ciorna: dict) -> str | None:
+    """Afisul de Instagram, daca ciorna are unul. Daca nu, Instagram foloseste
+    poza de blog, ca pana acum — nicio postare nu se pierde pentru ca lipseste
+    afisul."""
+    cheie = ciorna.get("imagine_ig_key")
+    if not (ciorna.get("are_imagine_ig") and cheie and config.PANEL_URL):
+        return None
+    return f"{config.PANEL_URL}/img/{cheie}"
+
+
 def publica(ciorna: dict) -> None:
     draft_id = ciorna["id"]
     print(f"  public {draft_id}: {ciorna.get('seo_title')}")
@@ -197,7 +207,9 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
         if facut.get("ig_link"):
             rezultat["ig_link"] = facut["ig_link"]
     elif "ig" in canale:
-        if not image_url:
+        # afisul facut pentru Instagram bate poza de blog; daca nu exista, tot poza
+        adresa_ig = _adresa_imagine_ig(ciorna) or image_url
+        if not adresa_ig:
             note.append("Instagram sărit: nu există imagine, iar Instagram nu acceptă postări fără imagine.")
         else:
             try:
@@ -205,7 +217,7 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
                 # le copiaza; le punem intregi, cu „https://", ca sa mearga la copiere
                 adresa = (wp.get("link") or "").rstrip("/")
                 ig = meta.publish_instagram_photo(
-                    image_url,
+                    adresa_ig,
                     _cu_link(ciorna.get("instagram_text") or "", adresa, "Articolul complet: {link}"),
                 )
                 rezultat["ig_link"] = ig.get("permalink_url")
