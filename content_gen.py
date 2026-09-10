@@ -267,16 +267,14 @@ decât 1500 diluate. Nu umple.
    din articol. Poate pune o întrebare la final.
 5. TEXT PENTRU INSTAGRAM (sub 300 de caractere): mai scurt, mai vizual,
    3-5 hashtag-uri la final.
-6. PROMPT DE IMAGINE, în engleză, foarte concret:
-   - pornește de la un ELEMENT VIZUAL SPECIFIC din articol — un obiect, o
-     scenă, o metaforă legată de subiectul exact (nu „modern tech office",
-     nu „person using laptop with charts")
-   - descrie compoziția (prim-plan/fundal, unghi), lumina („dramatic side
-     lighting", „soft morning light") și paleta (accente de roșu/coral pe
-     fundal închis)
-   - fotografie editorială high-end sau ilustrație 3D modernă, niciodată stock
-   - 2-4 propoziții
-   - fără text în imagine, fără logo-uri, fără persoane reale identificabile
+6. PROMPT DE IMAGINE, în engleză. (Ăsta e doar o plasă de siguranță: promptul
+   bun se scrie separat, după ce termini articolul. Scrie totuși unul decent.)
+   - o scenă care s-ar putea FOTOGRAFIA azi, într-un loc care există: mâinile
+     cuiva făcând ceva anume, obiecte reale pe o masă, un detaliu cu textură
+   - NU: ecrane cu grafice, holograme, circuite, roboți, becuri, strângeri de
+     mână, birouri open-space, fundal închis cu neon
+   - lumină naturală, culori potrivite locului
+   - 2-3 propoziții, fără text sau logo-uri în imagine, fără fețe recognoscibile
 7. INTREBAREA la care răspunde articolul, exact cum ar scrie-o omul în Google.
 8. RĂSPUNSUL SCURT: 40-60 de cuvinte, exact cel din capul articolului. Îl
    folosim și în datele structurate.

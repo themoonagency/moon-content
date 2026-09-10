@@ -18,6 +18,7 @@ import traceback
 
 import panel
 from config import config
+import imagine_prompt
 import seo
 from content_gen import CONSUM, curata_linkurile, generate_authority_draft
 from content_gen_catalog import genereaza_pentru_produs
@@ -121,6 +122,25 @@ def pentru_client(client: dict) -> None:
     if probleme_seo:
         print("  de verificat: " + "; ".join(probleme_seo))
 
+    # Promptul de imagine se scrie ACUM, cu articolul terminat in fata — nu in
+    # aceeasi cerere cu articolul, unde primea cea mai putina atentie si iesea
+    # „laptop cu grafice", fara legatura cu ce scrisese modelul.
+    #
+    # NU si la catalog cand punem in scena poza reala a produsului: acolo
+    # promptul descrie ce e IN JURUL produsului, iar produsul ramane neatins.
+    # Un prompt scris pentru o scena cu totul noua ar strica exact compunerea.
+    pune_in_scena = bool(produs and produs.get("imagine")
+                         and (produs.get("mod_imagine") or "wow") == "wow")
+    if not pune_in_scena:
+        from content_gen import cheama_modelul
+        prompt_nou = imagine_prompt.scrie(continut, cheama_modelul)
+        if prompt_nou:
+            continut["image_prompt"] = prompt_nou
+            print(f"  imaginea: {prompt_nou[:90]}…")
+            slabe = imagine_prompt._pare_slab(prompt_nou)
+            if slabe:
+                probleme_seo.append("poza risca sa iasa generica (" + ", ".join(slabe) + ")")
+
     imagine, eroare_img = None, ""
     poza_costa = True          # dacă a trecut pe la OpenAI, se pune la socoteală
 
@@ -173,6 +193,8 @@ def pentru_client(client: dict) -> None:
         "raspuns_scurt": continut.get("raspuns_scurt") or "",
         "schelet": continut.get("_schelet") or "",
         "seo_probleme": probleme_seo,
+        # promptul se vede in panou: altfel nu poti judeca DE CE a iesit poza asa
+        "image_prompt": continut.get("image_prompt") or "",
         "produs_ext_id": (produs or {}).get("ext_id"),
         "idee_id": (config.IDEE or {}).get("id"),
         "canale": config.CANALE,

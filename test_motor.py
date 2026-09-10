@@ -123,6 +123,12 @@ def fals_request(metoda, url, **kw):
         CERERI_IMAGINE.append(corp_g)
         return Raspuns({"interaction": {"output_image": {"data": _png((10, 40, 60))}}})
 
+    # cererea separata pentru promptul de imagine (are articolul in fata)
+    if "generativelanguage" in url and "fotoeditor" in str((kw.get("json") or {})):
+        CERERI_IMAGINE_PROMPT.append((kw.get("json") or {}))
+        return Raspuns({"candidates": [{"content": {"parts": [{"text": IMAGINE_RASPUNS[0]}]}}],
+                        "usageMetadata": {"promptTokenCount": 1200, "candidatesTokenCount": 150}})
+
     if "generativelanguage" in url:
         continut = {
             "topic_title": "Subiect nou de test", "angle": "unghi",
@@ -136,6 +142,11 @@ def fals_request(metoda, url, **kw):
     # --- OpenAI ---
     if "api.openai.com/v1/responses" in url:
         corp_o = kw.get("json") or {}
+        if "fotoeditor" in str(corp_o):
+            CERERI_IMAGINE_PROMPT.append(corp_o)
+            return Raspuns({"output": [{"type": "message", "role": "assistant",
+                                        "content": [{"type": "output_text", "text": IMAGINE_RASPUNS[0]}]}],
+                            "usage": {"input_tokens": 1100, "output_tokens": 700}})
         CERERI_TEXT.append(corp_o)
         continut = {
             "topic_title": "Subiect scris de ChatGPT", "angle": "unghi",
@@ -202,6 +213,14 @@ def fals_request(metoda, url, **kw):
 
 
 CERERI_TEXT: list = []
+CERERI_IMAGINE_PROMPT: list = []
+# raspunsul dat de model la cererea de prompt de imagine; testele il schimba
+IMAGINE_RASPUNS = [
+    "Close-up of a shop owner's hands counting printed order slips on a scratched wooden "
+    "counter at closing time, a cooling cup of coffee and a phone face-down beside them, "
+    "shot on 35mm at waist level with shallow depth of field, late afternoon light coming "
+    "in sideways through a window, warm browns and muted greens, quiet and a little tired."
+]
 CERERI_IMAGINE: list = []
 
 requests.request = fals_request
@@ -286,8 +305,10 @@ try:
 except SystemExit:
     pass
 d4 = list(PANOU["drafts"].values())[0]
-cer(d4.get("tokens_in") == 1200 and d4.get("tokens_out") == 800,
-    "consumul de tokeni ajunge in panou", [d4.get("tokens_in"), d4.get("tokens_out")])
+# 1200+800 articolul, 1200+150 cererea separata pentru promptul de imagine
+cer(d4.get("tokens_in") == 2400 and d4.get("tokens_out") == 950,
+    "consumul ajunge in panou, INCLUSIV apelul pentru promptul de imagine",
+    [d4.get("tokens_in"), d4.get("tokens_out")])
 cer(d4.get("imagini") == 1 and d4.get("model_imagine") == "gpt-image-2"
     and d4.get("calitate_imagine") == "mare",
     "se raporteaza imaginea, cu modelul si calitatea folosite",
@@ -538,7 +559,8 @@ cer((CERERI_IMAGINE[0].get("response_format") or {}).get("aspect_ratio") == "3:2
 cer(d12["model_text"] == "gpt-5.6-luna" and d12["model_imagine"] == "gemini-3.1-flash-image",
     "panoul afla exact ce modele au fost folosite, ca sa iasa costul",
     [d12.get("model_text"), d12.get("model_imagine")])
-cer(d12["tokens_in"] == 1100 and d12["tokens_out"] == 700,
+# textul vine de la ChatGPT (1100/700), promptul de imagine tot de acolo (1100/700)
+cer(d12["tokens_in"] == 2200 and d12["tokens_out"] == 1400,
     "consumul de la ChatGPT se numara la fel ca cel de la Gemini",
     [d12.get("tokens_in"), d12.get("tokens_out")])
 
@@ -707,6 +729,92 @@ requests.request = _req_v2
 cer(time.time() - _t0 < 1.0,
     "un tag cu multe atribute si fara href nu mai blocheaza rularea",
     f"{(time.time() - _t0):.2f}s")
+
+# --- promptul de imagine: scris separat, cu articolul in fata ---
+import imagine_prompt
+
+config.aplica(PANOU["clienti"][0])
+config.CLIENT_NICHE = "marketing digital"
+CIORNA_IMG = {"seo_title": "Cat costa reclamele pe TikTok in 2026",
+              "raspuns_scurt": "Pornesc de la 20 de euro pe zi pentru un set de anunturi.",
+              "article_html": "<p>Bugetul minim s-a schimbat in 2026.</p>"}
+cerere_img = imagine_prompt.cere(CIORNA_IMG)
+cer("Cat costa reclamele pe TikTok" in cerere_img and "20 de euro" in cerere_img,
+    "cererea de imagine chiar contine articolul, nu doar subiectul")
+cer("TENSIUNEA" in cerere_img, "i se cere sa ilustreze tensiunea articolului, nu tema in general")
+for cliseu in ["dashboards", "holograms", "circuit boards", "robots", "handshakes", "lightbulb"]:
+    cer(cliseu in cerere_img, "cliseul e interzis pe nume: " + cliseu)
+cer("s-ar putea fotografia AZI" in cerere_img, "scena trebuie sa poata fi fotografiata cu un aparat")
+
+# paleta agentiei NU se mai da tuturor clientilor
+config.IMAGINE_PALETA = ""
+cer("roșu" not in cerere_img and "coral" not in cerere_img.lower(),
+    "paleta THE MOON nu se mai lipeste pe toti clientii")
+config.IMAGINE_PALETA = "verde salvie si lemn deschis"
+cer("verde salvie" in imagine_prompt.cere(CIORNA_IMG), "paleta clientului ajunge in cerere")
+config.IMAGINE_STIL = "ilustratie"
+cer("NU randare 3D" in imagine_prompt.cere(CIORNA_IMG),
+    "pe ilustratie se cere desen, nu randare 3D — de acolo venea aerul de reclama la software")
+config.IMAGINE_EVITA = "oameni in costum"
+cer("oameni in costum" in imagine_prompt.cere(CIORNA_IMG), "ce nu vrea clientul ajunge in cerere")
+config.IMAGINE_STIL, config.IMAGINE_PALETA, config.IMAGINE_EVITA = "foto", "", ""
+
+# un prompt cu clisee e respins si se mai cere o data
+apeluri = []
+def _fals(payload, raspunsuri=["A laptop on a desk showing glowing dashboards and charts.",
+                               IMAGINE_RASPUNS[0]]):
+    apeluri.append(payload)
+    return {"candidates": [{"content": {"parts": [{"text": raspunsuri[min(len(apeluri) - 1, 1)]}]}}]}
+iesit = imagine_prompt.scrie(CIORNA_IMG, _fals)
+cer(len(apeluri) == 2, "un prompt cu dashboard-uri si grafice e respins si se cere altul", len(apeluri))
+cer("ÎNCERCAREA ANTERIOARĂ A FOST RESPINSĂ" in str(apeluri[1]),
+    "a doua cerere ii spune modelului exact ce a gresit")
+cer("counting printed order slips" in iesit, "iese promptul bun, nu cel cu clisee", iesit[:60])
+
+# daca modelul pica de tot, nu se opreste postarea
+def _crapa(payload):
+    raise RuntimeError("model cazut")
+cer(imagine_prompt.scrie(CIORNA_IMG, _crapa) == "",
+    "daca apelul pica, intoarce gol si ramane promptul din generarea mare")
+
+# si chiar ajunge pe ciorna
+cer(bool(CERERI_IMAGINE_PROMPT), "cererea separata chiar se face la fiecare generare")
+PANOU["drafts"].clear(); CERERI_IMAGINE_PROMPT.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+d_img = list(PANOU["drafts"].values())[0]
+cer("order slips" in (d_img.get("image_prompt") or ""),
+    "promptul scris separat il inlocuieste pe cel din generarea mare si ajunge in panou",
+    (d_img.get("image_prompt") or "")[:70])
+cer("Titlu SEO de test" in str(CERERI_IMAGINE_PROMPT[0]),
+    "cererea de imagine primeste articolul deja scris, nu doar tema")
+
+# la catalog, cand punem in scena poza REALA a produsului, promptul nou NU se
+# scrie: acolo se descrie ce e in jurul produsului, nu o scena cu totul noua
+_cl_vechi = PANOU["clienti"][0]["flux"]
+PANOU["clienti"][0]["flux"] = "catalog"
+PANOU["clienti"][0]["produs"] = dict(PRODUS, mod_imagine="wow")
+PANOU["drafts"].clear(); CERERI_IMAGINE_PROMPT.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+cer(not CERERI_IMAGINE_PROMPT,
+    "la compunerea din poza produsului NU se rescrie promptul — ar strica produsul",
+    len(CERERI_IMAGINE_PROMPT))
+PANOU["clienti"][0]["produs"] = dict(PRODUS, mod_imagine="generata")
+PANOU["drafts"].clear(); CERERI_IMAGINE_PROMPT.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+cer(bool(CERERI_IMAGINE_PROMPT),
+    "dar cand poza se deseneaza de la zero, promptul se scrie separat",
+    len(CERERI_IMAGINE_PROMPT))
+PANOU["clienti"][0]["flux"] = _cl_vechi
+PANOU["clienti"][0].pop("produs", None)
 
 cer(len(SCHELETE) >= 6, "avem cel putin sase forme de articol", len(SCHELETE))
 config.SCHELETE_RECENTE = [SCHELETE[0][0], SCHELETE[1][0], SCHELETE[2][0]]

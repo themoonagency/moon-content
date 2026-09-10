@@ -68,6 +68,10 @@ class Config:
     OPENAI_IMAGE_SIZE = "1536x1024"
 
     SCHELETE_RECENTE: list = []
+    # stilul vizual e AL CLIENTULUI, nu al agentiei
+    IMAGINE_STIL = "foto"
+    IMAGINE_PALETA = ""
+    IMAGINE_EVITA = ""
     AUTOR_NUME = ""
     AUTOR_URL = ""
     AUTOR_ROL = ""
@@ -153,6 +157,9 @@ class Config:
         self.AUTOR_ROL = c.get("autor_rol") or ""
         self.ORG_CUI = c.get("cui") or ""
         self.ORG_ORAS = c.get("oras") or ""
+        self.IMAGINE_STIL = c.get("imagine_stil") or Config.IMAGINE_STIL
+        self.IMAGINE_PALETA = c.get("imagine_paleta") or ""
+        self.IMAGINE_EVITA = c.get("imagine_evita") or ""
         self.IDEE = client.get("idee") or None
         self.LOGO_URL = c.get("logo_url") or ""
 
