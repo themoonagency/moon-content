@@ -20,8 +20,12 @@ def _pret(p: dict) -> str:
     m = p.get("moneda") or "RON"
     s = f"{p['pret']} {m}"
     vechi = p.get("pret_vechi")
-    if vechi and float(vechi) > float(p["pret"]):
-        s += f" (redus de la {vechi} {m})"
+    # un pret venit ca text („249,00") nu mai are voie sa doboare toata postarea
+    try:
+        if vechi and float(str(vechi).replace(",", ".")) > float(str(p["pret"]).replace(",", ".")):
+            s += f" (redus de la {vechi} {m})"
+    except (TypeError, ValueError):
+        pass
     return s
 
 
@@ -31,8 +35,15 @@ def _conexe(p: dict) -> str:
         return "  (magazinul nu are alte produse potrivite acum)"
     randuri = []
     for c in l:
+        # un produs conex fara nume sau fara link nu se recomanda deloc:
+        # inainte iesea in prompt ca „- None — … — None"
+        nume, url = str(c.get("nume") or "").strip(), str(c.get("url") or "").strip()
+        if not nume or not url:
+            continue
         pret = f"{c['pret']} {c.get('moneda') or 'RON'}" if c.get("pret") not in (None, "") else "fără preț"
-        randuri.append(f"  - {c['nume']} — {pret} — {c['url']}")
+        randuri.append(f"  - {nume} — {pret} — {url}")
+    if not randuri:
+        return "  (magazinul nu are alte produse potrivite acum)"
     return "\n".join(randuri)
 
 

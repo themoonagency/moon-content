@@ -66,6 +66,12 @@ def clienti(scadenti: bool = False, client_id: int | None = None,
 
 def creeaza_ciorna(client_id: int, continut: dict) -> str:
     date = _cere("POST", "/drafts", json={"client_id": client_id, **continut})
+    # Panoul ne spune daca n-a putut scrie anti-repetitia (subiectul tratat,
+    # produsul postat, ideea folosita). Fara asta, botul ar relua maine acelasi
+    # articol si n-ar afla nimeni de ce.
+    if date.get("nescrise"):
+        print("  ATENTIE: panoul n-a putut retine " + ", ".join(date["nescrise"]) +
+              " — subiectul se poate repeta")
     return date["id"]
 
 

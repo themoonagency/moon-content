@@ -18,6 +18,7 @@ import traceback
 
 import panel
 from config import config
+import seo
 from content_gen import CONSUM, curata_linkurile, generate_authority_draft
 from content_gen_catalog import genereaza_pentru_produs
 from image_gen import compune_din_produs, generate_image, image_from_url
@@ -60,13 +61,22 @@ def _pune_cta(html: str) -> str:
     else:
         bucata = f'<p><a href="{adresa}">{sigur}</a></p>'
 
-    # daca modelul a pus deja fraza la final, o inlocuim; altfel o adaugam
+    # Daca modelul a pus deja fraza si a si legat-o, o lasam in pace. Daca a
+    # pus-o ca text simplu, punem indemnul la final oricum — inainte incercam
+    # sa inlocuim paragraful cu un regex care nu putea trece peste marcaj
+    # imbricat (<strong>, <em>), si iesea un indemn care nu ducea nicaieri.
     simplu = f"<p>{sigur}</p>"
     if simplu in html:
-        return html.replace(simplu, bucata)
-    if text in html:
-        return re.sub(r"<p>[^<]*" + re.escape(text) + r"[^<]*</p>", bucata, html, count=1)
+        return html.replace(simplu, bucata, 1)
+    if _deja_legat(html, link):
+        return html
     return html + bucata
+
+
+def _deja_legat(html: str, link: str) -> bool:
+    """Exista deja un link catre adresa indemnului?"""
+    tipar = r'<a\b[^>]*href=["\']' + re.escape(link.rstrip("/")) + r'/?["\']'
+    return bool(re.search(tipar, html or "", re.I))
 
 
 def pentru_client(client: dict) -> None:
@@ -100,7 +110,16 @@ def pentru_client(client: dict) -> None:
     continut["article_html"], linkuri_scoase = curata_linkurile(continut.get("article_html") or "", ale_noastre)
     if linkuri_scoase:
         print(f"  {linkuri_scoase} link(uri) inventate scoase din articol")
+    # HTML-ul vine de la un model care a citit paginile clientului: il tratam ca
+    # text din afara si scoatem script/style/on… inainte sa ajunga pe site
+    continut["article_html"] = seo.curata_html(continut["article_html"])
     continut["article_html"] = _pune_cta(continut["article_html"])
+
+    # verificarile de SEO/GEO nu opresc nimic — se scriu pe ciorna, ca omul sa
+    # vada la ce sa se uite inainte de aprobare
+    probleme_seo = seo.controale(continut)
+    if probleme_seo:
+        print("  de verificat: " + "; ".join(probleme_seo))
 
     imagine, eroare_img = None, ""
     poza_costa = True          # dacă a trecut pe la OpenAI, se pune la socoteală
@@ -112,6 +131,9 @@ def pentru_client(client: dict) -> None:
             if mod == "catalog":
                 imagine, poza_costa = bruta, False
                 print("  imaginea e poza din catalog, neatinsă")
+            elif mod == "generata":
+                # omul a cerut dinadins imagine desenata, nu poza din catalog
+                pass
             elif mod == "wow":
                 # poza reală devine punctul de plecare: produsul rămâne el, dar intră într-o scenă
                 try:
@@ -124,7 +146,19 @@ def pentru_client(client: dict) -> None:
             print(f"  poza produsului nu s-a putut lua ({str(e)[:120]})")
 
     if not imagine:
-        imagine, eroare_img = genereaza_imagine(continut["image_prompt"])
+        # In fluxul de catalog promptul e scris pentru PUNEREA IN SCENA a pozei
+        # reale („nu descrie produsul, el ramane neschimbat"), deci folosit la
+        # generare din nimic dadea o masa goala, frumos luminata, fara produs.
+        prompt_img = continut.get("image_prompt") or ""
+        if produs and prompt_img:
+            prompt_img = (
+                f"Fotografie editoriala de produs: {produs.get('nume') or 'produsul'}. "
+                + prompt_img
+            )
+        if not prompt_img.strip():
+            prompt_img = (f"Fotografie editoriala, lumina naturala, pentru un articol despre "
+                          f"{continut.get('topic_title') or config.CLIENT_NICHE or 'subiectul articolului'}.")
+        imagine, eroare_img = genereaza_imagine(prompt_img)
 
     draft_id = panel.creeaza_ciorna(config.CLIENT_ID, {
         "topic_title": continut["topic_title"],
@@ -135,6 +169,10 @@ def pentru_client(client: dict) -> None:
         "facebook_text": continut["facebook_text"],
         "instagram_text": continut["instagram_text"],
         "are_imagine": bool(imagine),
+        "intrebare": continut.get("intrebare") or "",
+        "raspuns_scurt": continut.get("raspuns_scurt") or "",
+        "schelet": continut.get("_schelet") or "",
+        "seo_probleme": probleme_seo,
         "produs_ext_id": (produs or {}).get("ext_id"),
         "idee_id": (config.IDEE or {}).get("id"),
         "canale": config.CANALE,
@@ -192,7 +230,8 @@ def main() -> None:
             esecuri += 1
             traceback.print_exc()
             print(f"  EȘEC pe {client.get('nume')}: {e}")
-    sys.exit(1 if esecuri and esecuri == len(clienti) else 0)
+    # inainte iesea verde daca macar un client reusea; acum orice esec se vede
+    sys.exit(1 if esecuri else 0)
 
 
 if __name__ == "__main__":

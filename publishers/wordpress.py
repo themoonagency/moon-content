@@ -88,3 +88,18 @@ def publish_article(title: str, html_content: str, meta_description: str, image_
     )
     post["image_url"] = media["url"]
     return post
+
+
+def actualizeaza_articol(post_id: int, html_content: str) -> None:
+    """Rescrie continutul unui articol WordPress deja publicat (pentru datele
+    structurate, care au nevoie de adresa finala)."""
+    if not post_id:
+        return
+    adresa = config.WP_URL.rstrip("/") + f"/wp-json/wp/v2/posts/{int(post_id)}"
+    try:
+        r = requests.post(adresa, json={"content": html_content}, auth=_auth(),
+                          headers=_HEADERS, timeout=45)
+        if r.status_code >= 400:
+            print(f"  WordPress nu accepta actualizarea ({r.status_code}) — sar peste datele structurate")
+    except requests.RequestException as e:
+        print(f"  WordPress nu raspunde la actualizare: {str(e)[:120]}")

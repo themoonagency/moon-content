@@ -54,23 +54,44 @@ def anunta_ciorna(draft_id: str, title: str, facebook_text: str,
     try:
         if image_bytes:
             date["caption"] = caption[:1024]
-            requests.post(f"{_api()}/sendPhoto", data=date,
-                          files={"photo": ("previzualizare.jpg", image_bytes, "image/jpeg")}, timeout=60)
+            r = requests.post(f"{_api()}/sendPhoto", data=date,
+                              files={"photo": ("previzualizare.jpg", image_bytes, "image/jpeg")}, timeout=60)
         else:
             date["text"] = caption[:4000]
-            requests.post(f"{_api()}/sendMessage", data=date, timeout=30)
-    except requests.RequestException:
-        pass  # un anunț ratat nu blochează fluxul
+            r = requests.post(f"{_api()}/sendMessage", data=date, timeout=30)
+        _verifica(r, date)
+    except requests.RequestException as e:
+        print(f"  Telegram: nu am putut trimite ciorna ({str(e)[:150]})")
 
 
 def anunta(text: str) -> None:
     """Mesaj scurt (publicat / eroare). Nu ridică niciodată excepție."""
     if not activ():
         return
+    date = {"chat_id": config.TELEGRAM_CHAT_ID, "text": text[:4000], "parse_mode": "Markdown",
+            "disable_web_page_preview": True}
     try:
-        requests.post(f"{_api()}/sendMessage", data={
-            "chat_id": config.TELEGRAM_CHAT_ID, "text": text[:4000], "parse_mode": "Markdown",
-            "disable_web_page_preview": True,
-        }, timeout=30)
-    except requests.RequestException:
-        pass
+        _verifica(requests.post(f"{_api()}/sendMessage", data=date, timeout=30), date)
+    except requests.RequestException as e:
+        print(f"  Telegram: anuntul n-a plecat ({str(e)[:150]})")
+
+
+def _verifica(r, date: dict) -> None:
+    """Telegram raspunde 400 „can't parse entities" cand un titlu are un `_` sau
+    un `*` — pana acum nu verificam nimic, deci anunturile pur si simplu nu mai
+    ajungeau si nu scria nicaieri de ce. La eroare de formatare reincercam o
+    data ca text simplu, ca mesajul sa ajunga oricum."""
+    if r is None or r.status_code < 400:
+        return
+    corp = (r.text or "")[:200]
+    if "parse" in corp.lower() or "entities" in corp.lower():
+        fara = dict(date)
+        fara.pop("parse_mode", None)
+        try:
+            r2 = requests.post(f"{_api()}/sendMessage", data=fara, timeout=30)
+            if r2.status_code < 400:
+                print("  Telegram: trimis fara formatare (titlul avea _ sau *)")
+                return
+        except requests.RequestException:
+            pass
+    print(f"  Telegram a raspuns {r.status_code}: {corp}")

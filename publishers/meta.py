@@ -37,7 +37,16 @@ def _page_access_token() -> str:
         "access_token": config.META_SYSTEM_USER_TOKEN,
     }, timeout=30)
     _raise_with_body(resp)
-    return resp.json()["access_token"]
+    # Graph raspunde 200 si fara campul cerut cand tokenul n-are dreptul —
+    # un KeyError sec spunea doar „'access_token'", fara sa zica ce lipseste.
+    tok = (resp.json() or {}).get("access_token")
+    if not tok:
+        raise RuntimeError(
+            f"Tokenul nu poate citi token-ul paginii {config.META_PAGE_ID}. "
+            "Verifica in Business Manager ca System User-ul are rol pe pagina "
+            "si permisiunile pages_show_list + pages_manage_posts."
+        )
+    return tok
 
 
 def publish_facebook_photo(image_url: str, message: str) -> dict:
@@ -85,13 +94,22 @@ def publish_instagram_photo(image_url: str, caption: str, poll_seconds: int = 3,
     status_url = f"{_graph()}/{creation_id}"
     for _ in range(max_polls):
         status_resp = requests.get(status_url, params={
-            "fields": "status_code",
+            "fields": "status_code,status",
             "access_token": page_token,
         }, timeout=30)
         _raise_with_body(status_resp)
-        status = status_resp.json().get("status_code")
+        date_stare = status_resp.json() or {}
+        status = date_stare.get("status_code")
         if status == "FINISHED":
             break
+        # ERROR inseamna ca Instagram a REFUZAT poza (format, proportie, marime).
+        # Inainte asteptam degeaba inca un minut si raportam „nu a terminat la
+        # timp", adica exact cauza gresita.
+        if status == "ERROR":
+            raise RuntimeError(
+                "Instagram a refuzat imaginea: "
+                + str(date_stare.get("status") or date_stare.get("error_message") or "motiv necunoscut")[:250]
+            )
         time.sleep(poll_seconds)
     else:
         raise RuntimeError("Instagram nu a terminat procesarea imaginii la timp.")

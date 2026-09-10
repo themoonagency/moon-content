@@ -14,6 +14,7 @@ adresa publica in campul "image".
 
 from __future__ import annotations
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import requests
 
@@ -25,6 +26,17 @@ _HEADERS = {
         "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
     )
 }
+
+
+def _radacina() -> str:
+    """Doar schema + domeniul din adresa API. `split("/api/")` intorcea adresa
+    INTREAGA cand endpointul n-avea „/api/" in el (de exemplu
+    „…/wp-json/moon/v1/articole"), si linkul articolului iesea 404 —
+    inclusiv in postarile de Facebook si Instagram."""
+    u = urlsplit(config.BLOG_API_URL or "")
+    if u.scheme and u.netloc:
+        return f"{u.scheme}://{u.netloc}"
+    return "https://" + config.CLIENT_DOMAIN if config.CLIENT_DOMAIN else ""
 
 
 def _antete() -> dict:
@@ -65,18 +77,25 @@ def publish_article(
     try:
         data = resp.json()
     except ValueError:
-        data = {}
+        # Un 200 cu HTML inseamna aproape sigur ca am nimerit o pagina de
+        # mentenanta sau de login, nu API-ul. Inainte il luam drept succes si
+        # marcam ciorna „publicata" desi pe blog nu ajunsese nimic.
+        raise RuntimeError(
+            "Blogul a raspuns " + str(resp.status_code) + " dar nu cu JSON — "
+            "verifica adresa API si tokenul. Inceput: " + resp.text[:160]
+        )
 
-    if data.get("ok") is False:
-        raise RuntimeError(f"Blogul a refuzat articolul: {str(data.get('eroare') or data)[:300]}")
+    if not isinstance(data, dict) or data.get("ok") is False:
+        raise RuntimeError(f"Blogul a refuzat articolul: {str((isinstance(data, dict) and data.get('eroare')) or data)[:300]}")
 
     slug = data.get("slug") or ""
     link = data.get("url") or ""
+    if not link and not slug:
+        raise RuntimeError("Blogul a raspuns fara `url` si fara `slug` — nu stiu unde a ajuns articolul.")
     if link.startswith("/"):
-        baza = config.BLOG_API_URL.split("/api/")[0].rstrip("/")
-        if not baza and config.CLIENT_DOMAIN:
-            baza = "https://" + config.CLIENT_DOMAIN
-        link = baza + link
+        link = _radacina() + link
+    elif not link and slug:
+        link = _radacina() + "/blog/" + slug
     return {"id": slug or None, "link": link, "image_url": image_url}
 
 
@@ -110,3 +129,18 @@ def articole_existente(limita: int = 60) -> list[str]:
         if t:
             titluri.append(t)
     return titluri
+
+
+def actualizeaza_articol(slug: str | None, html_content: str) -> None:
+    """Rescrie continutul unui articol deja publicat — il folosim ca sa lipim
+    datele structurate, care au nevoie de adresa finala a articolului.
+    Daca blogul nu stie PUT, nu insistam: articolul e publicat oricum."""
+    if not slug:
+        return
+    adresa = config.BLOG_API_URL.rstrip("/") + "/" + str(slug).strip("/")
+    try:
+        r = requests.put(adresa, json={"content": html_content}, headers=_antete(), timeout=45)
+        if r.status_code >= 400:
+            print(f"  blogul nu accepta actualizarea ({r.status_code}) — sar peste datele structurate")
+    except requests.RequestException as e:
+        print(f"  blogul nu raspunde la actualizare: {str(e)[:120]}")

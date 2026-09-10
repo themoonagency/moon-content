@@ -13,7 +13,10 @@ import traceback
 
 import requests
 
+import time
+
 import panel
+import seo
 from config import config
 from publishers import blog_api, gbp, meta, wordpress
 import telegram_bot as tg
@@ -25,34 +28,62 @@ def _imagine_ciorna(ciorna: dict) -> bytes | None:
     cheie = ciorna.get("imagine_key")
     if not ciorna.get("are_imagine") or not cheie or not config.PANEL_URL:
         return None
-    try:
-        r = requests.get(f"{config.PANEL_URL}/img/{cheie}", timeout=60)
-        if r.status_code < 400 and len(r.content) > 100:
-            return r.content
-    except requests.RequestException:
-        pass
-    return None
+    # „n-am putut lua imaginea" NU e acelasi lucru cu „ciorna n-are imagine":
+    # inainte, o pana de retea facea Facebook sa posteze fara poza si Instagram
+    # sa fie sarit cu motivul gresit. Acum incercam de trei ori si, daca tot nu
+    # merge, ridicam — publicarea se reia la urmatoarea trecere.
+    ultima = ""
+    for incercare in range(3):
+        try:
+            r = requests.get(f"{config.PANEL_URL}/img/{cheie}", timeout=60)
+            if r.status_code < 400 and len(r.content) > 100:
+                return r.content
+            ultima = f"panoul a raspuns {r.status_code}"
+        except requests.RequestException as e:
+            ultima = str(e)[:150]
+        if incercare < 2:
+            time.sleep(3 * (incercare + 1))
+    raise RuntimeError(f"Ciorna are imagine, dar nu am putut-o lua din panou: {ultima}")
+
+
+def _adresa_imagine(ciorna: dict) -> str | None:
+    """Adresa publica a imaginii din panou — Meta si Google o descarca de acolo."""
+    cheie = ciorna.get("imagine_key")
+    if not (ciorna.get("are_imagine") and cheie and config.PANEL_URL):
+        return None
+    return f"{config.PANEL_URL}/img/{cheie}"
 
 
 def publica(ciorna: dict) -> None:
     draft_id = ciorna["id"]
     print(f"  public {draft_id}: {ciorna.get('seo_title')}")
 
-    lipsa = config.lipsuri_publicare()
+    lipsa = config.lipsuri_publicare([c for c in str(ciorna.get("canale") or "wp").split(",") if c])
     if lipsa:
         panel.actualizeaza(draft_id, stare="eroare", eroare="Lipsesc " + ", ".join(lipsa))
         return
 
     imagine = _imagine_ciorna(ciorna)
+    canale = [c for c in str(ciorna.get("canale") or "wp").split(",") if c]
+    # ce a reusit deja la o incercare anterioara nu se mai face o data
+    facut = ciorna.get("rezultat") if isinstance(ciorna.get("rezultat"), dict) else {}
+
+    if facut.get("wp_link"):
+        _publica_social(ciorna, draft_id,
+                        {"id": None, "link": facut["wp_link"], "image_url": _adresa_imagine(ciorna)},
+                        ["articolul era deja publicat — am reluat doar restul canalelor"])
+        return
+
+    # Slotul poate fi doar Facebook+Instagram. Inainte publicam articolul pe
+    # blog oricum, adica pe un canal pe care omul il scosese dinadins.
+    if "wp" not in canale:
+        _publica_social(ciorna, draft_id, {"id": None, "link": "", "image_url": _adresa_imagine(ciorna)},
+                        ["blogul nu e in programul slotului asta"])
+        return
 
     # blogul se pune de mana: nu-l atingem, dar restul canalelor merg
     if config.BLOG_MANUAL:
-        adresa_img = (
-            f"{config.PANEL_URL}/img/{ciorna.get('imagine_key')}"
-            if (ciorna.get("are_imagine") and ciorna.get("imagine_key") and config.PANEL_URL)
-            else None
-        )
-        wp = {"id": None, "link": "", "image_url": adresa_img}
+        wp = {"id": None, "link": "", "image_url": _adresa_imagine(ciorna)}
         _publica_social(ciorna, draft_id, wp, ["articolul se copiaza de mana in platforma clientului"])
         return
 
@@ -61,12 +92,7 @@ def publica(ciorna: dict) -> None:
     try:
         if config.BLOG_PE_API:
             # imaginea e deja publica in panou (R2) — API-ul primeste adresa, nu octetii
-            cheie = ciorna.get("imagine_key")
-            adresa_img = (
-                f"{config.PANEL_URL}/img/{cheie}"
-                if (ciorna.get("are_imagine") and cheie and config.PANEL_URL)
-                else None
-            )
+            adresa_img = _adresa_imagine(ciorna)
             wp = blog_api.publish_article(
                 title=ciorna["seo_title"],
                 html_content=ciorna["article_html"],
@@ -87,7 +113,29 @@ def publica(ciorna: dict) -> None:
         tg.anunta(f"❌ *MOON Post* — publicare blog ({unde}) eșuată ({config.CLIENT_NAME}):\n`{str(e)[:300]}`")
         return
 
+    # Datele structurate au nevoie de adresa finala a articolului, deci se pun
+    # abia acum, printr-o a doua trecere. Daca blogul nu accepta actualizarea,
+    # nu e o tragedie: articolul e deja publicat.
+    _pune_date_structurate(ciorna, wp)
+
     _publica_social(ciorna, draft_id, wp)
+
+
+def _pune_date_structurate(ciorna: dict, wp: dict) -> None:
+    adresa = (wp.get("link") or "").strip()
+    if not adresa:
+        return
+    try:
+        bloc = seo.date_structurate(ciorna, adresa, wp.get("image_url"))
+        if not bloc:
+            return
+        html_nou = (ciorna.get("article_html") or "") + bloc
+        if config.BLOG_PE_API:
+            blog_api.actualizeaza_articol(wp.get("id"), html_nou)
+        elif wp.get("id"):
+            wordpress.actualizeaza_articol(wp["id"], html_nou)
+    except Exception as e:  # noqa: BLE001
+        print(f"  datele structurate n-au putut fi puse: {str(e)[:150]}")
 
 
 def _cu_link(text: str, link: str, sablon: str) -> str:
@@ -104,12 +152,23 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
     rezultat = {"wp_link": wp.get("link")}
     note = list(note_initiale or [])
     image_url = wp.get("image_url")
+    # canalele care CHIAR au picat (nu cele sarite dinadins) — decid daca ciorna
+    # ramane de reincercat sau se inchide
+    cazute: list[str] = []
+    facut = ciorna.get("rezultat") if isinstance(ciorna.get("rezultat"), dict) else {}
 
     # canalele alese în programul clientului pentru slotul ăsta
     canale = [c for c in str(ciorna.get("canale") or "wp").split(",") if c]
 
     # --- Facebook ---
-    if "fb" in canale:
+    # „a mers deja" NU se deduce din prezenta linkului: Google si Meta pot
+    # publica cu succes si sa nu intoarca niciun permalink. De-aia marcam
+    # separat reusita, altfel canalul s-ar publica a doua oara la reincercare.
+    if facut.get("fb_ok") or facut.get("fb_link"):
+        rezultat["fb_ok"] = True
+        if facut.get("fb_link"):
+            rezultat["fb_link"] = facut["fb_link"]
+    elif "fb" in canale:
         try:
             if image_url:
                 # postarea cu poza nu are camp de link, deci il punem in text
@@ -118,19 +177,26 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
                     _cu_link(ciorna.get("facebook_text") or "", wp.get("link"), "Articolul complet: {link}"),
                 )
                 rezultat["fb_link"] = fb.get("permalink_url")
+                rezultat["fb_ok"] = True
             elif wp.get("link"):
                 # fără imagine, postăm link către articol — înainte, Facebook se sărea tăcut
                 fb = meta.publish_facebook_link(wp.get("link"), ciorna.get("facebook_text") or "")
                 note.append("Facebook: postare cu link, fără imagine.")
                 rezultat["fb_link"] = fb.get("permalink_url")
+                rezultat["fb_ok"] = True
             else:
                 note.append("Facebook sărit: nu există nici imagine, nici link de articol.")
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
             note.append(f"Facebook a eșuat: {str(e)[:200]}")
+            cazute.append("Facebook")
 
     # --- Instagram (are nevoie obligatoriu de o imagine publică) ---
-    if "ig" in canale:
+    if facut.get("ig_ok") or facut.get("ig_link"):
+        rezultat["ig_ok"] = True
+        if facut.get("ig_link"):
+            rezultat["ig_link"] = facut["ig_link"]
+    elif "ig" in canale:
         if not image_url:
             note.append("Instagram sărit: nu există imagine, iar Instagram nu acceptă postări fără imagine.")
         else:
@@ -143,12 +209,18 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
                     _cu_link(ciorna.get("instagram_text") or "", adresa, "Articolul complet: {link}"),
                 )
                 rezultat["ig_link"] = ig.get("permalink_url")
+                rezultat["ig_ok"] = True
             except Exception as e:  # noqa: BLE001
                 traceback.print_exc()
                 note.append(f"Instagram a eșuat: {str(e)[:200]}")
+                cazute.append("Instagram")
 
     # --- Profilul Google ---
-    if "gbp" in canale:
+    if facut.get("gbp_ok") or facut.get("gbp_link"):
+        rezultat["gbp_ok"] = True
+        if facut.get("gbp_link"):
+            rezultat["gbp_link"] = facut["gbp_link"]
+    elif "gbp" in canale:
         try:
             g = gbp.publish_local_post(
                 text=ciorna.get("facebook_text") or ciorna.get("seo_title") or "",
@@ -156,15 +228,39 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
                 image_url=image_url,
             )
             rezultat["gbp_link"] = g.get("permalink_url")
+            rezultat["gbp_ok"] = True
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
             note.append(f"Profilul Google a eșuat: {str(e)[:200]}")
+            cazute.append("Profilul Google")
 
-    panel.actualizeaza(draft_id, stare="publicat", rezultat=rezultat,
-                       eroare="; ".join(note) if note else None)
+    # Daca un canal cerut a picat, ciorna NU se inchide ca „publicat": ar
+    # disparea din coada si nimeni n-ar mai reincerca vreodata. Ce s-a publicat
+    # deja e in `rezultat`, iar publicatorii sar peste canalele care au reusit.
+    stare = "eroare" if cazute else "publicat"
+    # Articolul e DEJA publicat aici. Daca scrisul starii pica, nu aruncam mai
+    # departe: main() ar incerca sa scrie „eroare" pe acelasi panou mort, ar
+    # crapa rularea, si la urmatoarea trecere s-ar publica totul din nou.
+    scris = False
+    for i in range(4):
+        try:
+            panel.actualizeaza(draft_id, stare=stare, rezultat=rezultat,
+                               eroare="; ".join(note) if note else None)
+            scris = True
+            break
+        except Exception as e:  # noqa: BLE001
+            ultima_eroare = str(e)[:150]
+            if i < 3:
+                time.sleep(4 * (i + 1))
+    if not scris:
+        print(f"  ATENTIE: {draft_id} e publicat, dar panoul nu a putut fi anuntat ({ultima_eroare})")
+        tg.anunta(f"⚠️ *MOON Post* — {config.CLIENT_NAME}: articolul e publicat, dar panoul nu a "
+                  f"putut fi anuntat. Verifica sa nu se republice.")
+        return
 
+    semn = "✅ *Publicat" if not cazute else "⚠️ *Publicat pe jumatate"
     tg.anunta(
-        f"✅ *Publicat — {config.CLIENT_NAME}*\n*{ciorna.get('seo_title')}*\n"
+        f"{semn} — {config.CLIENT_NAME}*\n*{ciorna.get('seo_title')}*\n"
         f"Articol: {rezultat.get('wp_link') or '—'}\n"
         f"Facebook: {rezultat.get('fb_link') or 'lipsă'}\n"
         f"Instagram: {rezultat.get('ig_link') or 'lipsă'}"
@@ -194,7 +290,10 @@ def main() -> None:
             publica(ciorna)
         except Exception as e:  # noqa: BLE001 — o ciornă căzută nu oprește restul
             traceback.print_exc()
-            panel.actualizeaza(ciorna["id"], stare="eroare", eroare=str(e)[:400])
+            try:
+                panel.actualizeaza(ciorna["id"], stare="eroare", eroare=str(e)[:400])
+            except Exception:  # noqa: BLE001 — panoul e cazut; restul ciornelor merg mai departe
+                print(f"  panoul nu raspunde; {ciorna['id']} ramane asa cum e")
 
 
 if __name__ == "__main__":

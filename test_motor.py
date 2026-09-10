@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import time
 import os
 import sys
 
@@ -434,9 +435,9 @@ cer(any(u.endswith("/photos") for _, u in APELURI), "Facebook merge si pe fluxul
 PANOU["clienti"][0]["config"].pop("blog_api_token")
 PANOU["clienti"][0]["config"].pop("wp_app_password")
 config.aplica(PANOU["clienti"][0])
-cer(len(config.lipsuri_publicare()) == 1 and "blog" in config.lipsuri_publicare()[0].lower(),
+cer(len(config.lipsuri_publicare(["wp"])) == 1 and "blog" in config.lipsuri_publicare(["wp"])[0].lower(),
     "fara WordPress si fara API propriu, publicarea se opreste cu mesaj clar",
-    config.lipsuri_publicare())
+    config.lipsuri_publicare(["wp"]))
 
 # 12. blog manual (Gomag): articolul ramane in panou, Facebook merge
 PANOU["clienti"][0]["config"].update({"blog_tip": "manual",
@@ -458,7 +459,7 @@ cer(any(u.endswith("/photos") for _, u in APELURI), "Facebook merge si pe blog m
 cer("copiaza de mana" in (d10.get("eroare") or ""),
     "ciorna spune ca articolul se copiaza de mana", d10.get("eroare"))
 config.aplica(PANOU["clienti"][0])
-cer(config.lipsuri_publicare() == [], "pe manual nu se cer date de blog", config.lipsuri_publicare())
+cer(config.lipsuri_publicare(["wp"]) == [], "pe manual nu se cer date de blog", config.lipsuri_publicare(["wp"]))
 PANOU["clienti"][0]["config"]["blog_tip"] = "wp"
 
 # 13. linkuri inventate, CTA cu buton, si adresa articolului pe Facebook/Instagram
@@ -549,6 +550,181 @@ PANOU["clienti"][1]["config"].update({"model_text": "gemini-3.6-flash",
 config.aplica(PANOU["clienti"][1])
 cer(config.lipsuri_generare() == ["cheia Gemini"],
     "cu totul pe Gemini, cheia OpenAI nu mai e ceruta degeaba", config.lipsuri_generare())
+
+# 14b. publicare: canale, esecuri partiale, linkuri
+import publishers.blog_api as _bapi
+from config import config as _cfg
+
+_cfg.aplica(PANOU["clienti"][0])
+_cfg.BLOG_API_URL = "https://client.ro/wp-json/moon/v1/articole"
+cer(_bapi._radacina() == "https://client.ro",
+    "linkul articolului se face din domeniu, nu prin taiere dupa „/api/”", _bapi._radacina())
+_cfg.BLOG_API_URL = "https://themoonagency.ro/api/blog"
+cer(_bapi._radacina() == "https://themoonagency.ro", "si pe adresa obisnuita iese la fel")
+
+# blogul nu se mai publica pe un slot care nu-l cere
+PANOU["clienti"][0]["config"].update({"blog_tip": "api",
+    "blog_api_url": "https://themoonagency.ro/api/blog", "blog_api_token": "token-de-test"})
+PANOU["clienti"][0]["canale"] = ["fb"]
+PANOU["drafts"].clear(); BLOG_API.clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+dS = list(PANOU["drafts"].values())[0]
+dS["stare"] = "aprobat"
+dS["canale"] = "fb"
+check_approvals.main()
+cer(not BLOG_API, "un slot doar de Facebook NU mai publica articolul pe blog", BLOG_API)
+cer(any(u.endswith("/photos") for _, u in APELURI), "dar Facebook merge normal")
+
+# un canal cazut nu mai inchide ciorna ca „publicata"
+PANOU["clienti"][0]["canale"] = ["wp", "fb", "ig"]
+PANOU["drafts"].clear(); BLOG_API.clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+dP = list(PANOU["drafts"].values())[0]
+dP["stare"] = "aprobat"
+dP["canale"] = "wp,fb,ig"
+IMAGINE_PICA = False
+_meta_vechi = meta_mod.publish_instagram_photo if (meta_mod := __import__("publishers.meta", fromlist=["meta"])) else None
+def _ig_pica(*a, **k):
+    raise RuntimeError("Instagram a refuzat imaginea")
+meta_mod.publish_instagram_photo = _ig_pica
+check_approvals.main()
+meta_mod.publish_instagram_photo = _meta_vechi
+cer(dP["stare"] == "eroare",
+    "daca pica un canal cerut, ciorna NU se inchide ca publicata", dP.get("stare"))
+cer("Instagram" in (dP.get("eroare") or ""), "si scrie ce anume a picat", dP.get("eroare"))
+cer(dP["rezultat"].get("wp_link") and dP["rezultat"].get("fb_link"),
+    "ce a reusit ramane inregistrat", dP.get("rezultat"))
+
+# la reincercare nu se republica ce a mers deja
+BLOG_API.clear(); APELURI.clear()
+dP["stare"] = "aprobat"
+check_approvals.main()
+cer(not BLOG_API, "la reincercare, articolul NU se publica a doua oara pe blog", BLOG_API)
+cer(not any(u.endswith("/photos") for _, u in APELURI),
+    "si nici pe Facebook", [u for _, u in APELURI])
+cer(dP["stare"] == "publicat", "dupa ce trece si Instagram, ciorna se inchide", dP.get("stare"))
+
+# 15. SEO si GEO: forma articolului, datele structurate, verificarile
+import seo
+from content_gen import SCHELETE, curata_linkurile, _system_prompt
+
+config.aplica(PANOU["clienti"][0])
+config.CLIENT_DOMAIN = "themoonagency.ro"
+config.AUTOR_NUME = "Felix Ionescu"
+config.AUTOR_ROL = "fondator"
+config.ORG_CUI = "RO12345678"
+config.ORG_ORAS = "Bucuresti"
+
+CIORNA_SEO = {
+    "seo_title": "Cat costa reclamele pe TikTok in 2026",
+    "meta_description": "Un buget de start pentru TikTok Ads porneste de la 20 de euro pe zi.",
+    "topic_title": "Buget TikTok Ads",
+    "intrebare": "Cat costa reclamele pe TikTok?",
+    "raspuns_scurt": "Reclamele pe TikTok pornesc de la 20 de euro pe zi pentru un set de anunturi.",
+    "article_html": "<h1>T</h1><p>Text de " + ("cuvant " * 700) + "</p><h2>A</h2><h2>B</h2>"
+                    "<p>In 2026 pretul e 20 euro. <a href='https://themoonagency.ro/servicii'>servicii</a> "
+                    "<a href='https://themoonagency.ro/contact'>contact</a> "
+                    "<a href='https://ins.ro/date'>INS</a></p>",
+}
+jsonld = seo.date_structurate(CIORNA_SEO, "https://themoonagency.ro/blog/tiktok-ads", "https://x/y.jpg")
+cer(jsonld.startswith("<script type=\"application/ld+json\">"), "articolul pleaca cu date structurate")
+import json as _j
+graf = _j.loads(jsonld.split(">", 1)[1].rsplit("<", 1)[0])["@graph"]
+tipuri = [x["@type"] for x in graf]
+cer("BlogPosting" in tipuri and "Organization" in tipuri and "BreadcrumbList" in tipuri,
+    "graful are articolul, firma si firimiturile", tipuri)
+cer("FAQPage" not in tipuri and "HowTo" not in tipuri and "Speakable" not in tipuri,
+    "nu mai emitem tipuri care nu mai produc nimic din mai 2026", tipuri)
+art = [x for x in graf if x["@type"] == "BlogPosting"][0]
+cer(art["datePublished"] == art["dateModified"],
+    "la publicare, data modificarii e egala cu data publicarii", art["dateModified"])
+cer(art["inLanguage"] == "ro-RO" and art["abstract"].startswith("Reclamele"),
+    "articolul isi duce limba si raspunsul scurt in datele structurate")
+pers = [x for x in graf if x["@type"] == "Person"]
+cer(pers and pers[0]["name"] == "Felix Ionescu", "autorul real ajunge in datele structurate")
+org = [x for x in graf if x["@type"] == "Organization"][0]
+cer(org.get("vatID") == "RO12345678", "CUI-ul intra in datele structurate (se verifica la ANAF)")
+
+config.AUTOR_NUME = ""
+graf2 = _j.loads(seo.date_structurate(CIORNA_SEO, "https://themoonagency.ro/blog/x").split(">", 1)[1].rsplit("<", 1)[0])["@graph"]
+cer(not [x for x in graf2 if x["@type"] == "Person"],
+    "fara autor real, semneaza firma — nu inventam un nume")
+config.AUTOR_NUME = "Felix Ionescu"
+
+cer(seo.controale(CIORNA_SEO) == [], "un articol bun trece toate verificarile", seo.controale(CIORNA_SEO))
+rau = dict(CIORNA_SEO, article_html="<h1>a</h1><h1>b</h1><p>In lumea de azi, totul se schimba.</p>",
+           seo_title="T" * 80, meta_description="")
+p_rau = seo.controale(rau)
+cer(any("H1" in x for x in p_rau) and any("65" in x for x in p_rau) and
+    any("meta description" in x for x in p_rau) and any("cliseu" in x for x in p_rau) and
+    any("scurt" in x for x in p_rau),
+    "un articol prost e semnalat pe fiecare problema in parte", p_rau)
+
+cer("<script" not in seo.curata_html('<p>ok</p><script>alert(1)</script>') and
+    "onerror" not in seo.curata_html('<img src=x onerror="alert(1)">') and
+    "javascript:" not in seo.curata_html('<a href="javascript:alert(1)">x</a>'),
+    "scripturile si atributele periculoase nu ajung pe site-ul clientului",
+    seo.curata_html('<img src=x onerror="alert(1)">'))
+
+# datele structurate nu pot fi „iesite" cu </script>
+rau_titlu = dict(CIORNA_SEO, seo_title="Cum alegem </script><script>alert(1)</script> corect")
+bloc = seo.date_structurate(rau_titlu, "https://themoonagency.ro/blog/x")
+cer("</script>" not in bloc[:-len("</script>")],
+    "un titlu care contine marcaj de inchidere nu mai iese din datele structurate", bloc[:120])
+cer(_j.loads(bloc.split(">", 1)[1].rsplit("<", 1)[0]), "si blocul ramane JSON valid")
+
+# curatarea HTML prinde si formele fara spatiu / fara ghilimele
+for periculos in ['<img/onerror=alert(1) src=x>', '<svg/onload=alert(1)>',
+                  '<a href=javascript:alert(1)>x</a>', '<a href="jav\tascript:alert(1)">y</a>']:
+    curat = seo.curata_html(periculos)
+    cer("onerror" not in curat and "onload" not in curat and "javascript:" not in curat.replace(" ", ""),
+        "e curatat: " + periculos[:32], curat)
+cer("<b>bold</b>" in seo.curata_html("<p>text <b>bold</b></p>"),
+    "dar marcajul normal ramane neatins")
+
+# raspunsul taiat la limita de tokeni nu mai e carpit si publicat
+import content_gen as _cg
+try:
+    _cg._verifica_intreg_gemini({"candidates": [{"finishReason": "MAX_TOKENS"}]})
+    cer(False, "un raspuns taiat trebuie sa opreasca generarea")
+except RuntimeError as e:
+    cer("jumatati" in str(e), "un raspuns taiat opreste generarea, nu se carpeste", str(e)[:70])
+_cg._verifica_intreg_gemini({"candidates": [{"finishReason": "STOP"}]})
+cer(True, "un raspuns intreg trece mai departe")
+
+# regexul de linkuri nu mai poate bloca rularea
+_req_v2 = requests.request
+requests.request = lambda m2, u2, **k2: Raspuns({}, 200)
+_t0 = time.time()
+_cg.curata_linkurile("<a " + " ".join(f'data-x{i}="v{i}"' for i in range(22)) + ">fara href</a>")
+requests.request = _req_v2
+cer(time.time() - _t0 < 1.0,
+    "un tag cu multe atribute si fara href nu mai blocheaza rularea",
+    f"{(time.time() - _t0):.2f}s")
+
+cer(len(SCHELETE) >= 6, "avem cel putin sase forme de articol", len(SCHELETE))
+config.SCHELETE_RECENTE = [SCHELETE[0][0], SCHELETE[1][0], SCHELETE[2][0]]
+forme = set()
+for cid in range(1, 40):
+    config.CLIENT_ID = cid
+    forme.add(_system_prompt().split("FORMA ARTICOLULUI DE AZI: ")[1].split(" ")[0])
+cer(not (forme & set(config.SCHELETE_RECENTE)),
+    "forma articolului o ocoleste pe cea a ultimelor trei", sorted(forme))
+cer(len(forme) > 1, "forma chiar se roteste intre clienti", sorted(forme))
+config.SCHELETE_RECENTE = []
+
+pr = _system_prompt()
+cer("primele 40-60 de cuvinte" in pr, "promptul cere raspunsul sus de tot")
+cer("se ține singură" in pr or "se ține singur" in pr or "SE ȚINE SINGURĂ" in pr,
+    "promptul cere sectiuni care se inteleg scoase din pagina")
+cer("In lumea de azi" in pr, "promptul interzice deschiderile-cliseu pe nume")
+cer("nu le-ai văzut" in pr, "promptul interzice cifrele si sursele inventate")
 
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)

@@ -18,9 +18,17 @@ on:
         default: "nu"
         type: string
 
+# O singura rulare de generare o data. Fara asta, cronul propriu, pasul din
+# fluxul de publicare si pornirea din panou porneau trei rulari deodata, si
+# fiecare genera (si platea) aceeasi postare.
+concurrency:
+  group: moon-post-generare
+  cancel-in-progress: false
+
 jobs:
   generate:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 

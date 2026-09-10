@@ -5,9 +5,14 @@ on:
     - cron: "*/5 * * * *"   # repo public = minute Actions nelimitate
   workflow_dispatch: {}
 
+concurrency:
+  group: moon-post-publicare
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -25,14 +30,14 @@ jobs:
           CRON_KEY: ${{ secrets.CRON_KEY }}
         run: python check_approvals.py
 
-      # Generarea merge si de aici, tot la 5 minute. Cronul separat de generare
-      # a stat 14 ore fara sa porneasca desi era pe „din ora in ora", iar fluxul
-      # asta n-a ratat nicio rulare — deci nu ne mai bazam pe el.
-      # Panoul spune cine e scadent si cine a fost apasat din buton; daca nu e
-      # nimeni, pasul iese intr-o secunda.
-      - name: Generează ce e scadent sau cerut din buton
+      # Aici luam DOAR clientii apasati din buton (DOAR_COADA=1). Generarea
+      # dupa program are cronul ei; daca o faceam si aici, aceeasi postare se
+      # genera de doua ori, o data din fiecare flux. Panoul mai are si o lesa
+      # pe client, ca plasa de siguranta.
+      - name: Pornește ce s-a cerut din buton
         if: always()
         env:
           PANEL_URL: ${{ secrets.PANEL_URL }}
           CRON_KEY: ${{ secrets.CRON_KEY }}
+          DOAR_COADA: "1"
         run: python generate_draft.py

@@ -67,6 +67,13 @@ class Config:
     OPENAI_IMAGE_QUALITY = "mare"
     OPENAI_IMAGE_SIZE = "1536x1024"
 
+    SCHELETE_RECENTE: list = []
+    AUTOR_NUME = ""
+    AUTOR_URL = ""
+    AUTOR_ROL = ""
+    ORG_CUI = ""
+    ORG_ORAS = ""
+
     TELEGRAM_BOT_TOKEN = ""
     TELEGRAM_CHAT_ID = ""
 
@@ -138,6 +145,14 @@ class Config:
         self.SLOT = int(client.get("slot") or 0)
         self.CANALE = list(client.get("canale") or ["wp"])
         self.SITE = list(client.get("site") or [])
+        # formele ultimelor articole, ca sa nu iasa doua la fel una dupa alta
+        self.SCHELETE_RECENTE = list(client.get("schelete_recente") or [])
+        # cine semneaza articolele — conteaza si pentru Google, si pentru motoarele cu AI
+        self.AUTOR_NUME = c.get("autor_nume") or ""
+        self.AUTOR_URL = c.get("autor_url") or ""
+        self.AUTOR_ROL = c.get("autor_rol") or ""
+        self.ORG_CUI = c.get("cui") or ""
+        self.ORG_ORAS = c.get("oras") or ""
         self.IDEE = client.get("idee") or None
         self.LOGO_URL = c.get("logo_url") or ""
 
@@ -179,13 +194,24 @@ class Config:
             return False
         return bool(self.BLOG_API_URL and self.BLOG_API_TOKEN)
 
-    def lipsuri_publicare(self) -> list[str]:
+    def lipsuri_publicare(self, canale: list | None = None) -> list[str]:
+        """Ce lipseste ca sa putem publica pe canalele cerute. Inainte se uita
+        doar la blog, asa ca un client fara token de Meta „publica" zilnic si
+        primea in tacere un „Facebook a esuat" ingropat intr-o nota."""
         lipsa = []
-        if self.BLOG_PE_API or self.BLOG_MANUAL:
-            return lipsa
-        if not (self.WP_URL and self.WP_USER and self.WP_APP_PASSWORD):
-            lipsa.append("datele blogului: fie WordPress (adresă, utilizator, parolă de APLICAȚIE), "
-                         "fie adresa și tokenul API-ului propriu")
+        c = list(canale or ["wp"])
+        if "wp" in c and not (self.BLOG_PE_API or self.BLOG_MANUAL):
+            if not (self.WP_URL and self.WP_USER and self.WP_APP_PASSWORD):
+                lipsa.append("datele blogului: fie WordPress (adresă, utilizator, parolă de APLICAȚIE), "
+                             "fie adresa și tokenul API-ului propriu")
+        if ("fb" in c or "ig" in c) and not self.META_SYSTEM_USER_TOKEN:
+            lipsa.append("tokenul Meta")
+        if "fb" in c and not self.META_PAGE_ID:
+            lipsa.append("ID-ul paginii de Facebook")
+        if "ig" in c and not self.META_IG_ID:
+            lipsa.append("ID-ul contului de Instagram")
+        if "gbp" in c and not (self.GBP_REFRESH_TOKEN and self.GBP_LOCATION):
+            lipsa.append("accesul la Profilul Google")
         return lipsa
 
 
