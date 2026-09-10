@@ -42,7 +42,7 @@ def _cere(metoda: str, cale: str, **kw) -> dict:
 # ---------- clienți ----------
 
 def clienti(scadenti: bool = False, client_id: int | None = None,
-            forteaza: bool = False) -> list[dict]:
+            forteaza: bool = False, coada: bool = False) -> list[dict]:
     """Clienții activi, cu cheile lor. Motorul e singurul care le vede în clar.
 
     scadenti=True întoarce doar clienții cărora le e scadentă o postare în ora
@@ -50,6 +50,9 @@ def clienti(scadenti: bool = False, client_id: int | None = None,
     fiecare `slot` și `canale`. forteaza=True ignoră programul (pornire manuală
     din panou)."""
     p = {}
+    if coada:
+        # doar clientii apasati din butonul „Genereaza acum"
+        p["coada"] = "1"
     if scadenti:
         p["scadenti"] = "1"
     if forteaza:

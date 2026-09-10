@@ -131,10 +131,15 @@ def pentru_client(client: dict) -> None:
 def main() -> None:
     unul = os.environ.get("CLIENT_ID", "").strip()
     forteaza = os.environ.get("FORTEAZA", "").strip().lower() in ("1", "da", "true", "yes")
-    clienti = panel.clienti(scadenti=True, client_id=int(unul) if unul.isdigit() else None,
+    # DOAR_COADA=1: rulat din fluxul de publicare (la 5 minute), ia numai clientii
+    # apasati din butonul „Genereaza acum". Asa pornirea manuala nu mai depinde
+    # de cronul de generare, care poate intarzia mult.
+    doar_coada = os.environ.get("DOAR_COADA", "").strip().lower() in ("1", "da", "true", "yes")
+    clienti = panel.clienti(scadenti=not doar_coada, coada=doar_coada,
+                            client_id=int(unul) if unul.isdigit() else None,
                             forteaza=forteaza)
     if not clienti:
-        print("Niciun client cu postare scadentă în ora asta.")
+        print("Nimeni la rand." if doar_coada else "Niciun client cu postare scadentă în ora asta.")
         return
     print(f"{len(clienti)} client(i) de rulat acum.")
     esecuri = 0

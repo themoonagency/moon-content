@@ -24,3 +24,15 @@ jobs:
           PANEL_URL: ${{ secrets.PANEL_URL }}
           CRON_KEY: ${{ secrets.CRON_KEY }}
         run: python check_approvals.py
+
+      # Generarea merge si de aici, tot la 5 minute. Cronul separat de generare
+      # a stat 14 ore fara sa porneasca desi era pe „din ora in ora", iar fluxul
+      # asta n-a ratat nicio rulare — deci nu ne mai bazam pe el.
+      # Panoul spune cine e scadent si cine a fost apasat din buton; daca nu e
+      # nimeni, pasul iese intr-o secunda.
+      - name: Generează ce e scadent sau cerut din buton
+        if: always()
+        env:
+          PANEL_URL: ${{ secrets.PANEL_URL }}
+          CRON_KEY: ${{ secrets.CRON_KEY }}
+        run: python generate_draft.py
