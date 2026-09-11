@@ -367,8 +367,9 @@ def logo_imagine() -> Image.Image | None:
 
 
 def compune_afis(continut_png: bytes, format_cerut: str | None, banda: bool, handle: str,
-                 accent: str, logo: Image.Image | None) -> bytes:
-    """Afisul final: continutul intreg, incadrat, plus subsolul desenat de cod."""
+                 accent: str, logo: Image.Image | None, nota: str = "") -> bytes:
+    """Afisul final: continutul intreg, incadrat, plus subsolul desenat de cod.
+    `nota` = randul mic de deasupra adresei („Articolul întreg pe blog")."""
     raport = _RAPORT_IG.get((format_cerut or "").strip(), 4 / 5)
     W, H = IG_LATIME, round(IG_LATIME / raport)
     img = Image.open(io.BytesIO(continut_png)).convert("RGB")
@@ -404,14 +405,24 @@ def compune_afis(continut_png: bytes, format_cerut: str | None, banda: bool, han
             d = ImageDraw.Draw(panza)
             x_liber = m + lw + round(W * 0.04)
         text = (handle or "").strip() if banda else ""
+        nota = (nota or "").strip() if text else ""
         if text:
-            marime = round(hs * 0.30)
+            marime = round(hs * (0.26 if nota else 0.30))
             f = _font(marime)
             while marime > 12 and d.textlength(text, font=f) > (W - m) - x_liber:
                 marime -= 2
                 f = _font(marime)
             x = (W - m) - d.textlength(text, font=f)
-            d.text((x, y0 + hs / 2), text, font=f, fill=text_c, anchor="lm")
+            y_adresa = y0 + hs * (0.64 if nota else 0.5)
+            d.text((x, y_adresa), text, font=f, fill=text_c, anchor="lm")
+            if nota:
+                mn = max(11, round(hs * 0.15))
+                fn = _font(mn)
+                while mn > 11 and d.textlength(nota, font=fn) > (W - m) - x_liber:
+                    mn -= 1
+                    fn = _font(mn)
+                gri = tuple(round(c * 0.72 + b * 0.28) for c, b in zip(text_c, fundal))
+                d.text(((W - m) - d.textlength(nota, font=fn), y0 + hs * 0.30), nota, font=fn, fill=gri, anchor="lm")
 
     out = io.BytesIO()
     panza.save(out, format="JPEG", quality=92)
@@ -436,8 +447,21 @@ def afis_instagram(prompt: str) -> bytes:
         }, timeout=120)
         resp.raise_for_status()
         png = base64.b64decode(resp.json()["data"][0]["b64_json"])
-    return compune_afis(png, config.IG_FORMAT, bool(config.IG_BANDA),
-                        config.IG_HANDLE or config.CLIENT_DOMAIN or "", config.IG_ACCENT, logo)
+    adresa = config.IG_HANDLE or config.CLIENT_DOMAIN or ""
+    return compune_afis(png, config.IG_FORMAT, bool(config.IG_BANDA), adresa, config.IG_ACCENT, logo,
+                        nota=nota_afis(adresa))
+
+
+def nota_afis(adresa: str) -> str:
+    """Randul mic de deasupra adresei. Punctele de pe afis sunt doar inceputul: omul trebuie sa
+    stie ca restul e pe blog. Doar cand banda arata o adresa web (nu un @cont) si cand articolul
+    chiar iese pe blog in slotul asta."""
+    a = (adresa or "").strip()
+    if not a or "@" in a or " " in a or "." not in a:
+        return ""
+    if "wp" not in (config.CANALE or []):
+        return ""
+    return "Articolul întreg pe blog"
 
 
 # ---------------------------------------------------------------- coperta de articol

@@ -68,12 +68,16 @@ def _imagini(continut: dict, produs: dict | None, probleme_seo: list,
     poza_reala, motiv_poza = None, ""
     if produs and mod in ("wow", "catalog"):
         if produs.get("imagine"):
-            try:
-                poza_reala = image_from_url(produs["imagine"], cu_logo=(mod == "catalog"),
-                                            referer=produs.get("url") or None)
-            except Exception as e:  # noqa: BLE001
-                motiv_poza = str(e)[:160]
-                print(f"  poza produsului nu s-a putut lua ({motiv_poza})")
+            # intai copia adusa de panou in R2 (imagine_panou): firewallul unor magazine (evero.ro)
+            # refuza adresele GitHub; abia apoi adresa originala din catalog
+            for sursa in [x for x in (produs.get("imagine_panou"), produs["imagine"]) if x]:
+                try:
+                    poza_reala = image_from_url(sursa, cu_logo=(mod == "catalog"),
+                                                referer=(produs.get("url") or None) if sursa == produs["imagine"] else None)
+                    break
+                except Exception as e:  # noqa: BLE001
+                    motiv_poza = str(e)[:160]
+                    print(f"  poza produsului nu s-a putut lua de la {sursa[:80]} ({motiv_poza})")
         else:
             motiv_poza = "produsul n-are poză în catalog"
     fara_produs = bool(produs) and mod in ("wow", "catalog") and poza_reala is None
@@ -145,7 +149,8 @@ def _imagini(continut: dict, produs: dict | None, probleme_seo: list,
     # plăti o generare în plus pentru o poză pe care n-o vede nimeni.
     imagine_ig, prompt_ig = None, ""
     if config.IG_SEPARATA and "ig" in config.CANALE:
-        prompt_ig = imagine_ig_mod.scrie(continut)
+        from content_gen import cheama_modelul as _cheama_text   # nu numele de mai sus: acela e local doar pe o ramura
+        prompt_ig = imagine_ig_mod.scrie(continut, _cheama_text)
         try:
             imagine_ig = afis_instagram(prompt_ig)
             print("  imaginea de Instagram: afiș " + (config.IG_SABLON or "lista"))

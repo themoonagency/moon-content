@@ -438,6 +438,45 @@ cer(_are(_af, (255, 200, 0), (0, int(_af.size[1] * 0.9), 1080, _af.size[1])) == 
 _af = Image.open(io.BytesIO(image_gen.compune_afis(_poster(1024, 1536), "4:5", False, "", "", None)))
 cer(_are(_af, (0, 0, 255), (0, int(_af.size[1] * 0.9), 1080, _af.size[1])) > 300,
     "fara banda si fara logo nu ramane subsol gol: continutul coboara pana jos")
+# 11 sept, afisul THE MOON: sub puncte scrie mic ca restul e pe blog (Felix: „macar de ar avea scris mai mic
+# la final, vezi articolul intreg pe blog") — doar cu adresa web in banda si cu blogul in slot
+_cu = Image.open(io.BytesIO(image_gen.compune_afis(_poster(1024, 1024), "4:5", True, "themoonagency.ro", "#ff2f4d", None,
+                                                   nota="Articolul întreg pe blog")))
+_fara = Image.open(io.BytesIO(image_gen.compune_afis(_poster(1024, 1024), "4:5", True, "themoonagency.ro", "#ff2f4d", None)))
+_Hc = _cu.size[1]
+_zona_nota = (540, int(_Hc * 0.9) + 8, 1080, int(_Hc * 0.93) + 4)
+cer(_are(_cu, (200, 200, 200), _zona_nota, 200) > _are(_fara, (200, 200, 200), _zona_nota, 200) + 30,
+    "afisul are randul mic „Articolul întreg pe blog” deasupra adresei",
+    [_are(_cu, (200, 200, 200), _zona_nota, 200), _are(_fara, (200, 200, 200), _zona_nota, 200)])
+_canale_v = config.CANALE
+config.CANALE = ["wp", "ig"]
+cer(image_gen.nota_afis("www.themoonagency.ro") == "Articolul întreg pe blog" and image_gen.nota_afis("@moon") == "",
+    "nota apare langa o adresa web, nu langa un @cont")
+config.CANALE = ["ig"]
+cer(image_gen.nota_afis("www.themoonagency.ro") == "", "fara blog in slot, afisul nu trimite la un articol care nu apare")
+config.CANALE = _canale_v
+
+import imagine_ig
+# 11 sept: punctele prea lungi nu se mai taie cu „…" — se rescriu scurt; fara model, taierea ramane rezerva
+_lung = ("<h2>Ce este o secvență automatizată de email marketing și cum funcționează?</h2><p>a</p>"
+         "<h2>De ce generează automatizările de email un venit de 22 de ori mai mare decât campaniile obișnuite trimise manual?</h2><p>b</p>"
+         "<h2>Care sunt cele mai profitabile fluxuri de email marketing automatizat pentru un magazin online mic?</h2><p>c</p>")
+_cereri_scurt = []
+def _cheama_scurt(payload):
+    _cereri_scurt.append(payload["contents"][0]["parts"][0]["text"])
+    return {"candidates": [{"content": {"parts": [{"text": "1. De ce emailul automat aduce de 22 de ori mai mult\n"
+                                                            "2. Cele mai profitabile fluxuri pentru magazine mici"}]}}]}
+_p = imagine_ig._puncte({"article_html": _lung}, 3, _cheama_scurt)
+cer(len(_p) == 3 and not any("…" in x for x in _p) and _p[0].startswith("Ce este o secvență") and _p[1].startswith("De ce emailul")
+    and len(_cereri_scurt) == 1 and "Scurtează" in _cereri_scurt[0] and "Ce este o secvență" not in _cereri_scurt[0],
+    "H2-ul care incape ramane intreg, doar cele lungi se rescriu scurt, intr-un singur apel, fara „…”", _p)
+_p = imagine_ig._puncte({"article_html": _lung}, 3, lambda payload: {"candidates": [{"content": {"parts": [{"text": "1. doar unul"}]}}]})
+cer(len(_p) == 3 and _p[1].endswith("…"), "raspuns stricat de la model -> ramane taierea la cuvant intreg (afisul tot iese)", _p)
+_p = imagine_ig._puncte({"article_html": _lung}, 3, lambda payload: (_ for _ in ()).throw(RuntimeError("model cazut")))
+cer(len(_p) == 3, "modelul cazut nu opreste afisul", _p)
+cer("De ce emailul automat aduce de 22 de ori mai mult" in imagine_ig.scrie({"seo_title": "T", "article_html": _lung}, _cheama_scurt),
+    "promptul afisului primeste punctele scurtate")
+
 cer(image_gen._cel_mai_apropiat(image_gen.zona_continut("4:5", False), image_gen._MARIMI_OPENAI) == "1024x1536"
     and image_gen._cel_mai_apropiat(image_gen.zona_continut("4:5", False), image_gen._PROPORTII_GEMINI) == "4:5",
     "fara subsol, 4:5 se cere portret la OpenAI si fix 4:5 la Gemini")
@@ -1510,6 +1549,29 @@ if hasattr(_gd, "doar_imagini"):
     cer(any("poza produsului" in str(x) for x in (_dk.get("seo_probleme_adauga") or [])),
         "ciorna afla ca poza reala a produsului lipseste", _dk.get("seo_probleme_adauga"))
     cer((_dk.get("image_prompt") or "") and "order slips" in _dk.get("image_prompt"), "promptul nou ajunge pe ciorna", _dk.get("image_prompt"))
+
+    # 11 sept, evero.ro: firewallul magazinului refuza GitHub, dar panoul (workerul) a adus poza in R2
+    # -> motorul o ia de pe panou si produsul real ajunge pe poza, nu o scena fara produs
+    PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear(); CERERI_IMAGINE_PROMPT.clear(); POZE_CERUTE.clear()
+    PANOU["drafts"]["js0007"] = {"id": "js0007", "stare": "ciorna"}
+    _cl_cat2 = dict(_cl_js, flux="catalog", produs=dict(PRODUS, mod_imagine="catalog", imagine="https://cdn.exemplu/poza-blocata.jpg",
+                                                         imagine_panou="https://post.exemplu.ro/img/poza-produs-40-abc"))
+    PANOU["imagine"] = {"ok": True, "client": _cl_cat2, "ciorna": dict(PANOU["imagine"]["ciorna"], id="js0007",
+        prompt_scris=False, image_prompt="scena", produs_ext_id="SKU-77")}
+    _prompturi.clear()
+    generate_draft.generate_image = lambda pr, *a, **k: (_prompturi.append(pr), _gen_v(pr, *a, **k))[1]
+    os.environ["DRAFT_ID"] = "js0007"
+    try:
+        generate_draft.main()
+    except SystemExit:
+        pass
+    os.environ.pop("DRAFT_ID", None)
+    generate_draft.generate_image = _gen_v
+    _dq = PANOU["drafts"].get("js0007") or {}
+    cer(POZE_CERUTE and "post.exemplu.ro/img/" in POZE_CERUTE[0] and not any("poza-blocata" in u for u in POZE_CERUTE)
+        and not _prompturi and not any("poza produsului" in str(x) for x in (_dq.get("seo_probleme_adauga") or []))
+        and _dq.get("are_imagine") is True,
+        "poza produsului vine din copia panoului (R2), fara scena generata si fara avertisment", [POZE_CERUTE, _prompturi, _dq.get("seo_probleme_adauga")])
 
     # ciorna nu mai asteapta (sau alta rulare a luat-o): nu se face nimic, nu crapa
     PANOU["imagine"] = {"ok": True, "ciorna": None, "motiv": "imaginile se fac deja"}

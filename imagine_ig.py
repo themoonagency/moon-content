@@ -46,8 +46,9 @@ FUNDAL = {
     "deschis": "near-white background (#f6f6f8), text in near-black",
     "brand": "a solid background in the client's brand colour, text in whichever of "
              "white or near-black actually contrasts with it",
-    "poza": "the article photograph as background, heavily darkened and blurred so the "
-            "text stays readable",
+    # modelul NU primeste poza de blog: isi face singur o fotografie pe subiect (asa scrie si in panou)
+    "poza": "a photograph that fits the article's subject as background, heavily darkened and "
+            "blurred so the text stays readable",
     "gradient": "a smooth gradient built from the client's brand colours, text in whichever "
                 "of white or near-black actually contrasts with it",
 }
@@ -79,13 +80,54 @@ def _curat(t: str, cate: int) -> str:
     return " ".join(cuv).rstrip(" ,;:–-") + "…"
 
 
-def _puncte(continut: dict, cate: int) -> list:
+# Un H2 pana la atata incape intreg pe afis (trei randuri); peste, se rescrie scurt.
+LIMITA_PUNCT = 80
+TINTA_SCURT = 65
+
+CERE_SCURT = """Scurtează titlurile de mai jos pentru un afiș de Instagram. Fiecare devine
+o etichetă de cel mult {tinta} de caractere, în română cu diacritice, cu ACELAȘI sens,
+formulată complet: fără „…", fără cuvinte tăiate, fără ghilimele. Nu adăuga cifre,
+prețuri sau informații care nu sunt în titlu. Răspunde DOAR cu lista numerotată, câte
+una pe rând, în aceeași ordine.
+
+{lista}"""
+
+
+def _scurtate(lungi: list, cheama) -> list | None:
+    """Rescrie scurt, printr-un apel ieftin de text, H2-urile care nu incap. Pana pe 11 sept
+    se taiau cu „…" (pe afisul THE MOON: „…un venit de 22 de ori mai mare decât…"). Intoarce
+    None daca raspunsul nu e bun — atunci ramane taierea la cuvant intreg."""
+    if not lungi or cheama is None:
+        return None
+    lista = "\n".join(f"{i}. {x}" for i, x in enumerate(lungi, 1))
+    try:
+        date = cheama({"contents": [{"role": "user", "parts": [{"text": CERE_SCURT.format(tinta=TINTA_SCURT, lista=lista)}]}],
+                       "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400}})
+        text = date["candidates"][0]["content"]["parts"][0]["text"] or ""
+    except Exception as e:  # noqa: BLE001 — afisul nu merita sa opreasca postarea
+        print(f"  punctele afisului n-au putut fi scurtate: {str(e)[:120]}")
+        return None
+    randuri = [re.sub(r"^\s*\d+[.)]\s*", "", r).strip().strip('"„”«»') for r in text.splitlines()]
+    randuri = [r for r in randuri if r]
+    if len(randuri) != len(lungi):
+        return None
+    if any(len(r) > LIMITA_PUNCT or "…" in r or "..." in r or len(r) < 4 for r in randuri):
+        return None
+    return randuri
+
+
+def _puncte(continut: dict, cate: int, cheama=None) -> list:
     """Punctele de pe afiș, scoase din articol. Întâi H2-urile (sunt deja
-    titluri scurte, scrise de model); dacă nu-s destule, primele propoziții."""
+    titluri scurte, scrise de model); dacă nu-s destule, primele propoziții.
+    Un H2 prea lung se rescrie scurt (`cheama`), iar fără model se taie la cuvânt întreg."""
     if cate <= 0:
         return []
     html = continut.get("article_html") or ""
-    out = [_curat(x, 80) for x in re.findall(r"<h2[^>]*>(.*?)</h2>", html, re.S | re.I)]
+    h2 = [_curat(x, 10 ** 6) for x in re.findall(r"<h2[^>]*>(.*?)</h2>", html, re.S | re.I)]
+    h2 = [x for x in h2 if len(x) > 3][:cate]
+    lungi = [x for x in h2 if len(x) > LIMITA_PUNCT]
+    scurte = dict(zip(lungi, _scurtate(lungi, cheama) or [])) if lungi else {}
+    out = [scurte.get(x) or _curat(x, LIMITA_PUNCT) for x in h2]
     out = [x for x in out if len(x) > 3]
     if len(out) < cate:
         text = _curat(html, 1200)
@@ -98,13 +140,13 @@ def _puncte(continut: dict, cate: int) -> list:
     return out[:cate]
 
 
-def cere(continut: dict) -> str:
+def cere(continut: dict, cheama=None) -> str:
     """Cererea trimisă modelului. Separată, ca s-o pot testa fără să dau bani."""
     cate = CATE.get((config.IG_TEXT_CAT or "mediu").strip().lower(), 3)
     sablon = SABLOANE.get((config.IG_SABLON or "lista").strip().lower(), SABLOANE["lista"])
     sablon = sablon.replace("{n}", str(max(3, cate)))
     titlu = _curat(continut.get("seo_title") or continut.get("topic_title") or "", 90)
-    puncte = _puncte(continut, cate)
+    puncte = _puncte(continut, cate, cheama)
 
     accent = (config.IG_ACCENT or "").strip() or "a single strong accent colour"
 
@@ -148,7 +190,7 @@ Answer with the image only.
 """.strip()
 
 
-def scrie(continut: dict) -> str:
-    """Promptul afișului. Nu cheamă niciun model de text — se construiește din
-    articolul deja scris, deci nu costă nimic în plus față de generarea pozei."""
-    return cere(continut)
+def scrie(continut: dict, cheama=None) -> str:
+    """Promptul afișului, construit din articolul deja scris. Modelul de text e chemat doar
+    când un H2 nu încape pe afiș (un apel mic, sub o zecime de ban), ca să nu apară „…"."""
+    return cere(continut, cheama)
