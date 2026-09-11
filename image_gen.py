@@ -438,3 +438,64 @@ def afis_instagram(prompt: str) -> bytes:
         png = base64.b64decode(resp.json()["data"][0]["b64_json"])
     return compune_afis(png, config.IG_FORMAT, bool(config.IG_BANDA),
                         config.IG_HANDLE or config.CLIENT_DOMAIN or "", config.IG_ACCENT, logo)
+
+
+# ---------------------------------------------------------------- coperta de articol
+#
+# Felul „coperta" (11 sept): poza de blog/Facebook cu titlul articolului pe ea. Titlul il
+# scrie CODUL, nu modelul — modelele de imagine gresesc literele si diacriticele. Modelului i
+# se cere doar o fotografie cu jumatatea stanga calma; aici se pune un voal intunecat pe
+# stanga, linia de accent si titlul, apoi logoul clientului, ca la orice poza.
+
+def _impacheteaza(d, text: str, font, lat_max: float) -> list:
+    randuri, rand = [], ""
+    for cuv in text.split():
+        proba = (rand + " " + cuv).strip()
+        if rand and d.textlength(proba, font=font) > lat_max:
+            randuri.append(rand)
+            rand = cuv
+        else:
+            rand = proba
+    if rand:
+        randuri.append(rand)
+    return randuri
+
+
+def compune_coperta(imagine: bytes, titlu: str, accent: str | None = None) -> bytes:
+    img = Image.open(io.BytesIO(imagine)).convert("RGB")
+    W, H = img.size
+    voal = Image.new("L", (W, 1))
+    for x in range(W):
+        voal.putpixel((x, 0), int(225 * max(0.0, 1 - x / (W * 0.72)) ** 1.1))
+    img = Image.composite(Image.new("RGB", (W, H), (8, 8, 12)), img, voal.resize((W, H)))
+
+    d = ImageDraw.Draw(img)
+    m = round(W * 0.06)
+    lat_max = W * 0.58
+    text = re.sub(r"\s+", " ", titlu or "").strip()
+    marime = round(H * 0.078)
+    while True:
+        f = _font(marime)
+        randuri = _impacheteaza(d, text, f, lat_max)
+        if len(randuri) <= 4 or marime <= 22:
+            break
+        marime -= 3
+    if len(randuri) > 4:
+        randuri = randuri[:4]
+        randuri[3] = randuri[3].rstrip(" ,;:–-") + "…"
+    pas = round(marime * 1.18)
+    bloc = pas * len(randuri)
+    logo_jos_stanga = (config.IMAGINE_LOGO_LOC or "").strip().lower() == "stanga-jos"
+    y = (H - bloc) // 2 if logo_jos_stanga else H - m - bloc
+    acc = _culoare_hex(accent or config.IG_ACCENT) or _culoare_hex(config.IMAGINE_PALETA) or (250, 250, 250)
+    gros = max(4, round(H * 0.007))
+    y_linie = y - round(H * 0.04)
+    d.rectangle([m, y_linie, m + round(W * 0.07), y_linie + gros], fill=acc)
+    for r in randuri:
+        d.text((m, y), r, font=f, fill=(250, 250, 250))
+        y += pas
+
+    img = _apply_logo(img)
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=90)
+    return out.getvalue()

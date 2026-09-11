@@ -432,6 +432,56 @@ cer(image_gen._cel_mai_apropiat(image_gen.zona_continut("4:5", False), image_gen
     and image_gen._cel_mai_apropiat(image_gen.zona_continut("4:5", False), image_gen._PROPORTII_GEMINI) == "4:5",
     "fara subsol, 4:5 se cere portret la OpenAI si fix 4:5 la Gemini")
 
+# 6d. felul pozei principale din panou (11 sept): „coperta" = poza + titlul scris din cod,
+# „rulaj" = alt fel la fiecare postare, dintre cele bifate, fara sa-l repete pe ultimul.
+_cop_apeluri: list = []
+_cop_vechi = getattr(generate_draft, "compune_coperta", None)
+def _cop_spion(img, titlu, *a, **kw):
+    _cop_apeluri.append(titlu)
+    return _cop_vechi(img, titlu, *a, **kw)
+if _cop_vechi:
+    generate_draft.compune_coperta = _cop_spion
+PANOU["clienti"][0]["config"].update({"imagine_stil": "coperta"})
+PANOU["drafts"].clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+_dc = list(PANOU["drafts"].values())[0]
+cer(_dc.get("imagine_fel") == "coperta" and len(_cop_apeluri) == 1 and _cop_apeluri[0] == _dc.get("seo_title"),
+    "pe „coperta”, poza primeste titlul articolului, scris din cod", [_dc.get("imagine_fel"), _cop_apeluri])
+PANOU["clienti"][0]["config"].update({"imagine_stil": "rulaj", "imagine_rulaj": "ilustratie,izometric"})
+PANOU["clienti"][0]["feluri_recente"] = ["ilustratie"]
+PANOU["drafts"].clear(); _cop_apeluri.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+_dr2 = list(PANOU["drafts"].values())[0]
+cer(_dr2.get("imagine_fel") == "izometric" and not _cop_apeluri,
+    "pe rulaj, felul ales se scrie pe ciorna si nu il repeta pe ultimul", _dr2.get("imagine_fel"))
+if _cop_vechi:
+    generate_draft.compune_coperta = _cop_vechi
+PANOU["clienti"][0]["config"].update({"imagine_stil": "foto", "imagine_rulaj": ""})
+PANOU["clienti"][0].pop("feluri_recente", None)
+
+# coperta, pe bucati: voal intunecat in stanga, titlul alb jos-stanga, linia de accent deasupra
+_foto = Image.new("RGB", (1536, 1024), (200, 200, 200)); _bf = io.BytesIO(); _foto.save(_bf, format="JPEG")
+config.LOGO_URL = ""; config.IG_ACCENT = "#ff2f4d"
+if hasattr(image_gen, "compune_coperta"):
+    _cop = Image.open(io.BytesIO(image_gen.compune_coperta(_bf.getvalue(),
+        "Program de accelerare e-commerce: cum scalezi un magazin")))
+    _lum = lambda im: sum(sum(px) / 3 for px in im.getdata()) / (im.width * im.height)
+    cer(_cop.size == (1536, 1024), "coperta pastreaza marimea pozei", _cop.size)
+    cer(_lum(_cop.crop((0, 0, 600, 1024))) < _lum(_cop.crop((1150, 0, 1536, 1024))) - 40,
+        "partea stanga e intunecata, ca titlul sa se citeasca pe orice poza")
+    cer(_are(_cop, (250, 250, 250), (0, 350, 950, 1024), 40) > 800, "titlul e scris in alb, jos-stanga",
+        _are(_cop, (250, 250, 250), (0, 350, 950, 1024), 40))
+    cer(_are(_cop, (255, 47, 77), None, 60) > 50, "cu linia de accent deasupra titlului")
+else:
+    cer(False, "exista compunerea de coperta (image_gen.compune_coperta)")
+config.IG_ACCENT = ""
+
 import imagine_ig as _iig
 _lung = {"seo_title": "Cât costă optimizarea SEO și GEO e-commerce în 2026?", "article_html":
     "<h2>Cât costă un pachet lunar de SEO și GEO pentru e-commerce în 2026?</h2>"
@@ -1080,6 +1130,50 @@ cig2 = imagine_ig.cere(CIORNA_IG)
 cer("Fara preturi pe poza." in cig2 and cig2.index("Fara preturi") > cig2.index("STYLE"),
     "cerintele pentru Instagram stau tot la final")
 config.IG_CERINTE = ""
+
+# 11 sept: poza principala „prea basic, nu reprezinta nimic" (THE MOON Agency: o mana cu un scaner
+# pe cutii, la „Program de accelerare e-commerce"). Acum: trei idei pornite din titlu, ramane cea care
+# nu s-ar potrivi la alt articol; felul pozei se alege din panou, cu coperta si rulaj aleator.
+config.IMAGINE_STIL = "foto"; config.FEL_AZI = ""
+_c6 = imagine_prompt.cere({"seo_title": "Program de accelerare e-commerce: cum scalezi un magazin",
+                           "article_html": "<p>x</p>"})
+cer("trei idei vizuale" in _c6 and "Program de accelerare e-commerce: cum scalezi un magazin" in _c6.split("CUM ALEGI")[-1],
+    "cererea porneste de la titlu si cere trei idei vizuale diferite")
+cer("NU s-ar potrivi la alt articol" in _c6, "ramane ideea specifica articolului, nu una generala")
+cer("PROMPT:" in _c6, "raspunsul tine ideile separat de promptul final")
+config.IMAGINE_PALETA = "negru, alb si rosu"
+cer("nu vopsi tot cadrul" in imagine_prompt.cere(CIORNA_IMG), "paleta clientului e directie, nu vopseaua intregii poze")
+config.IMAGINE_PALETA = ""
+_cu_idei = "IDEI:\n1. un raft\n2. o usa\n3. o scara\nALEASA: 2\nPROMPT: " + IMAGINE_RASPUNS[0]
+cer(imagine_prompt.scrie(CIORNA_IMG, lambda pl: {"candidates": [{"content": {"parts": [{"text": _cu_idei}]}}]})
+    == IMAGINE_RASPUNS[0], "din raspuns ramane doar promptul final, fara lista de idei")
+for _f, _semn in (("ilustratie", "NU randare 3D"), ("render3d", "3D conceptual"), ("izometric", "izometric"),
+                  ("duoton", "duoton"), ("coperta", "jumătatea stângă")):
+    config.IMAGINE_STIL = _f; config.FEL_AZI = ""
+    cer(_semn.lower() in imagine_prompt.cere(CIORNA_IMG).lower(), f"felul „{_f}” ajunge in cerere")
+config.IMAGINE_STIL = "ilustratie"
+cer("s-ar putea fotografia AZI" not in imagine_prompt.cere(CIORNA_IMG),
+    "la ilustratie nu i se cere o scena care se poate fotografia")
+config.IMAGINE_STIL = "coperta"; config.IMAGINE_TEXT_PE_POZA = "titlu"
+cer("Fără text, litere" in imagine_prompt.cere(CIORNA_IMG) and
+    "No text, letters" in getattr(imagine_prompt, "fara_text_la_generare", lambda: "")(),
+    "la coperta modelul nu scrie niciun text: titlul il pune codul")
+config.IMAGINE_TEXT_PE_POZA = "nu"
+_alege = getattr(imagine_prompt, "alege_fel", lambda: "")
+config.IMAGINE_STIL = "rulaj"; config.IMAGINE_RULAJ = "ilustratie,coperta,izometric"
+config.FELURI_RECENTE = ["coperta", "izometric"]
+cer({_alege() for _ in range(30)} == {"ilustratie"}, "rulajul nu repeta ultimele doua feluri cand are din ce alege")
+config.FELURI_RECENTE = ["coperta"]
+_vazute = {_alege() for _ in range(80)}
+cer(_vazute == {"ilustratie", "izometric"}, "si alege aleator dintre celelalte bifate", _vazute)
+config.IMAGINE_RULAJ = ""; config.FELURI_RECENTE = []
+_vazute = {_alege() for _ in range(120)}
+cer({"foto", "coperta"} <= _vazute, "fara nimic bifat, rulajul are o lista implicita, cu tot cu coperta", _vazute)
+config.IMAGINE_RULAJ = "nimic,altceva"
+cer(_alege() in getattr(imagine_prompt, "RULAJ_IMPLICIT", []), "valorile necunoscute nu strica rulajul")
+config.IMAGINE_STIL = "stil-inexistent"
+cer(_alege() == "foto", "un fel necunoscut cade pe fotografie")
+config.IMAGINE_STIL = "foto"; config.IMAGINE_RULAJ = ""; config.FEL_AZI = ""
 
 # un prompt cu clisee e respins si se mai cere o data
 apeluri = []

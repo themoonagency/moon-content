@@ -14,6 +14,7 @@ Dacă apelul pică, rămâne promptul din generarea mare, deci nu blochează nim
 
 from __future__ import annotations
 from datetime import date
+import random
 import re
 
 from config import config
@@ -84,22 +85,62 @@ def _deja_vazute() -> str:
 
 # Cele opt feluri de imagine din panou. Textul e ce ajunge in prompt.
 FELURI = {
-    "foto": "Fotografie editorială reală, ca dintr-un reportaj: lumină naturală, "
-            "adâncime mică de câmp, imperfecțiuni păstrate.",
+    "foto": "Fotografie editorială reală cu un CONCEPT clar, ca dintr-un reportaj de revistă: "
+            "lumină naturală, adâncime mică de câmp, imperfecțiuni păstrate.",
     "still": "Natură statică fotografiată de sus sau din lateral, obiecte reale, fără oameni.",
-    "ilustratie": "Ilustrație editorială desenată de mână, cu textură de hârtie și tușe "
-                  "vizibile — NU randare 3D, NU vectorial curat, NU „modern flat”.",
+    "ilustratie": "Ilustrație editorială conceptuală, ca pe coperta unei reviste de business: o idee "
+                  "vizuală deșteaptă, desenată de mână, cu textură de hârtie și tușe vizibile — "
+                  "NU randare 3D, NU vectorial curat, NU „modern flat”.",
     "editorial": "Fotografie editorială ca în reviste: compoziție construită, un singur subiect "
                  "clar, spațiu gol lăsat dinadins în cadru.",
-    "minimal": "Minimal: UN singur obiect, fundal simplu și uniform, mult spațiu gol, "
-               "o singură sursă de lumină.",
-    "render3d": "Randare 3D curată, materiale mate, umbre moi, fără reflexii exagerate "
-                "și fără aspect de joc video.",
+    "minimal": "Minimal: UN singur obiect-simbol pentru ideea articolului, fundal simplu și uniform, "
+               "mult spațiu gol, o singură sursă de lumină.",
+    "render3d": "Randare 3D conceptual: o scenă-metaforă construită din forme și obiecte simple, "
+                "materiale mate, umbre moi, lumină de studio, fără reflexii exagerate și fără "
+                "aspect de joc video.",
+    "izometric": "Scenă izometrică 3D, ca o machetă văzută de sus la 30°: o mini-lume care arată "
+                 "ideea articolului (locuri, etape, fluxuri) cu obiecte mici și clare, culori curate, "
+                 "fundal simplu.",
+    "duoton": "Fotografie editorială în duoton — două culori puternice, luate din paleta clientului — "
+              "cu contrast grafic de afiș și un singur subiect clar.",
     "abstract": "Forme și gradiente, fără obiecte recognoscibile — culoare, textură și "
                 "compoziție, atât.",
     "colaj": "Colaj grafic: decupaje cu margini vizibile, straturi suprapuse, "
              "hârtie texturată sub ele.",
+    "coperta": "Fotografie editorială conceptuală pentru o COPERTĂ de articol: subiectul stă în "
+               "treimea dreaptă a cadrului, iar jumătatea stângă e calmă, simplă și mai întunecată — "
+               "acolo se așază titlul, pus separat. Fără niciun text în imagine.",
 }
+
+# Felurile care se fotografiază (li se cere o scenă care există). Celelalte se construiesc.
+FOTOGRAFICE = {"foto", "still", "editorial", "minimal", "duoton", "coperta"}
+
+# Rulaj fără nimic bifat: un amestec care arată diferit de la o postare la alta.
+RULAJ_IMPLICIT = ["foto", "ilustratie", "render3d", "izometric", "coperta"]
+
+
+def fel_azi() -> str:
+    """Felul pozei pentru ciorna în lucru: cel ales de `alege_fel()` la începutul ei,
+    altfel cel din panou (un „rulaj" nealeas încă înseamnă fotografie)."""
+    fel = (config.FEL_AZI or config.IMAGINE_STIL or "foto").strip().lower()
+    return fel if fel in FELURI else "foto"
+
+
+def alege_fel() -> str:
+    """Felul pozei principale pentru postarea asta. Pe „rulaj" se alege ALEATOR dintre
+    felurile bifate în panou, fără ultimele două folosite (dacă rămâne din ce alege).
+    Pus pe 11 sept: toate pozele THE MOON Agency ieșeau la fel — foto, negru-alb-roșu."""
+    fel = (config.IMAGINE_STIL or "foto").strip().lower()
+    if fel != "rulaj":
+        return fel if fel in FELURI else "foto"
+    bifate = [x.strip().lower() for x in str(config.IMAGINE_RULAJ or "").split(",")]
+    bifate = list(dict.fromkeys(x for x in bifate if x in FELURI)) or list(RULAJ_IMPLICIT)
+    recente = [str(x).strip().lower() for x in (config.FELURI_RECENTE or []) if x]
+    for cate in (2, 1):
+        rest = [x for x in bifate if x not in recente[:cate]]
+        if rest:
+            return random.choice(rest)
+    return random.choice(bifate)
 
 LUMINA = {
     "naturala": "lumină naturală de zi, dintr-o fereastră",
@@ -115,15 +156,18 @@ def _stil() -> str:
     «accente de roșu/coral pe fundal închis» — identitatea THE MOON — și îl
     primeau toți clienții, de la sala de fitness la magazinul de parfumuri.
     De aici veneau imaginile «prea tech»."""
-    fel = (config.IMAGINE_STIL or "foto").strip().lower()
-    randuri = [FELURI.get(fel) or FELURI["foto"]]
+    randuri = [FELURI[fel_azi()]]
 
     lumina = LUMINA.get((config.IMAGINE_LUMINA or "").strip().lower())
     if lumina:
         randuri.append(f"Lumina: {lumina}.")
 
     paleta = (config.IMAGINE_PALETA or "").strip()
-    randuri.append(f"Paleta: {paleta}." if paleta
+    # Paleta e o DIRECTIE. Pusa ca regula, colora fiecare poza la fel (THE MOON Agency:
+    # negru-alb-rosu pe toate, 11 sept) si pozele nu se mai deosebeau una de alta.
+    randuri.append(f"Paleta clientului, ca direcție: {paleta}. Folosește-o la accente, lumină sau "
+                   f"un obiect — nu vopsi tot cadrul în ea; pozele trebuie să arate diferit una de alta."
+                   if paleta
                    else "Paleta: culori naturale, potrivite locului din imagine. "
                         "NU fundal închis cu accente neon — arată a reclamă de software.")
     evita = (config.IMAGINE_EVITA or "").strip()
@@ -137,6 +181,8 @@ def _regula_text() -> str:
     iar textul dublat arată prost în Google Imagini. Dacă omul îl cere, îl cerem
     scurt și așezat, nu un paragraf peste poză."""
     fel = (config.IMAGINE_TEXT_PE_POZA or "nu").strip().lower()
+    if fel_azi() == "coperta":
+        fel = "nu"          # pe coperta titlul il scrie codul, deci modelul nu scrie nimic
     if fel == "titlu":
         return ("- Un SINGUR rând de text pe imagine, maximum 6 cuvinte, scos din titlul "
                 "articolului, așezat într-o zonă goală a cadrului. Fără alt text.")
@@ -152,7 +198,7 @@ def fara_text_la_generare() -> str:
     de fotoeditor n-o ducea mai departe, iar pe 11 sept poza de blog a ieșit cu
     „FULFILL FASTER" pe un panou, deși clientul alesese „fără text"."""
     fel = (config.IMAGINE_TEXT_PE_POZA or "nu").strip().lower()
-    if fel in ("titlu", "titlu_sub"):
+    if fel in ("titlu", "titlu_sub") and fel_azi() != "coperta":
         return ""
     return " No text, letters, numbers, signs, labels or logos anywhere in the image."
 
@@ -175,6 +221,12 @@ def cere(continut: dict) -> str:
     """Cererea trimisă modelului. Separată, ca s-o pot testa fără să dau bani."""
     nisa = config.CLIENT_NICHE or "serviciile clientului"
     nume_cale, forma_cale = _cale()
+    titlu = continut.get('seo_title') or continut.get('topic_title') or ''
+    regula_scena = ("Trebuie să fie o scenă care s-ar putea fotografia AZI, cu un aparat, într-un\n"
+                    "   loc care există. Dacă ai nevoie de efecte ca să se înțeleagă, ai ales greșit."
+                    if fel_azi() in FOTOGRAFICE else
+                    "Imaginea se CONSTRUIEȘTE în stilul de mai jos, dar ideea trebuie să se înțeleagă\n"
+                    "   dintr-o privire, fără explicații și fără efecte puse ca să umple cadrul.")
     return f"""
 Ești fotoeditor la o revistă de business. Alegi imaginea care însoțește articolul
 de mai jos. NU scrii articolul — doar alegi ce se vede în poză.
@@ -186,19 +238,23 @@ Din text: {_text(continut.get('article_html') or '')}
 Domeniul clientului: {nisa}
 
 CUM ALEGI
-1. Scrie-ți în minte care e TENSIUNEA articolului — ce se schimbă, ce pierde
-   cineva, ce câștigă. Imaginea ilustrează ASTA, nu subiectul în general.
-   Un articol despre costuri nu arată „bani”, arată momentul în care cineva se
-   uită la un preț și se oprește.
-2. CALEA DE AZI E ALEASĂ, nu o schimbi și nu o amesteci cu alta: {nume_cale}
+1. Titlul e subiectul: „{titlu}". Scrie ÎNTÂI trei idei vizuale diferite, câte un rând,
+   care pornesc de la ce promite titlul, nu de la domeniul clientului în general. La un
+   subiect abstract (un serviciu, un preț, o strategie, o creștere) caută o METAFORĂ
+   VIZUALĂ care se înțelege dintr-o privire — nu obiectele obișnuite ale meseriei.
+2. Păstrează ideea care NU s-ar potrivi la alt articol al aceluiași client. Dacă una ar merge
+   la orice articol despre {nisa}, e prea generală: aruncă-o.
+3. Gândește-te la TENSIUNEA articolului — ce se schimbă, ce pierde cineva, ce câștigă.
+   Un articol despre costuri nu arată „bani”, arată momentul în care cineva se uită la
+   un preț și se oprește.
+4. CALEA DE AZI E ALEASĂ ca punct de plecare pentru cadru: {nume_cale}
    {forma_cale}
-   Calea spune doar FELUL cadrului. Locul, obiectele și oamenii vin din lumea articolului
-   de mai sus — cine vede poza lângă titlu trebuie să înțeleagă legătura fără explicații.
-   Nu te lua după un cuvânt din text („e-commerce", „livrare") ca să muți scena în altă
-   meserie decât cea despre care e articolul.
-3. Trebuie să fie o scenă care s-ar putea fotografia AZI, cu un aparat, într-un
-   loc care există. Dacă ai nevoie de efecte ca să se înțeleagă, ai ales greșit.
-4. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
+   O schimbi doar dacă ideea aleasă cere alt cadru. Calea spune doar FELUL cadrului: locul,
+   obiectele și oamenii vin din lumea articolului — cine vede poza lângă titlu trebuie să
+   înțeleagă legătura fără explicații. Nu te lua după un cuvânt din text („e-commerce",
+   „livrare") ca să muți scena în altă meserie decât cea despre care e articolul.
+5. {regula_scena}
+6. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
 
 NU FOLOSI NICIODATĂ
 {chr(10).join('- ' + x for x in INTERZISE)}
@@ -207,14 +263,20 @@ STILUL CLIENTULUI
 {_stil()}
 
 REGULI DE FORMĂ
-- Scrii în ENGLEZĂ, 45-75 de cuvinte, într-un singur paragraf.
+- Promptul final îl scrii în ENGLEZĂ, 45-75 de cuvinte, într-un singur paragraf.
 - Spui, în ordine: ce se vede (subiect + acțiune) · unde · un detaliu anume ·
-  cadrul și obiectivul (ex. „shot on 35mm, waist-level, shallow depth of field”) ·
+  cadrul (și obiectivul, dacă e fotografie: „shot on 35mm, waist-level, shallow depth of field”) ·
   lumina · paleta · starea.
 {_regula_text()}
 - Fără fețe de oameni recognoscibile: mâini, siluete, spatele cuiva, da.
 - Fără mărci, fără produse ale concurenței.
-- Răspunde DOAR cu paragraful. Fără ghilimele, fără explicații, fără „Prompt:”.
+- Răspunzi EXACT în forma asta, fără alt text:
+IDEI:
+1. <prima idee, un rând, în română>
+2. <a doua>
+3. <a treia>
+ALEASA: <numărul ideii păstrate>
+PROMPT: <paragraful final, în engleză>
 {_deja_vazute()}
 {_cerinte()}
 """.strip()
@@ -248,6 +310,16 @@ def _pare_slab(prompt: str) -> list:
     return gasite
 
 
+def doar_promptul(raspuns: str) -> str:
+    """Din „IDEI … ALEASA … PROMPT: …" rămâne doar paragraful final. Un răspuns fără
+    „PROMPT:" (model vechi, răspuns scurt) se ia întreg, ca înainte."""
+    t = (raspuns or "").strip()
+    m = re.search(r"PROMPT\s*:\s*(.+)\Z", t, re.S | re.I)
+    if m:
+        t = m.group(1)
+    return t.strip().strip('"').strip()
+
+
 def scrie(continut: dict, cheama) -> str:
     """Promptul de imagine pentru articolul ăsta. `cheama` e funcția care
     vorbește cu modelul (o primim ca parametru ca să putem testa fără rețea).
@@ -263,13 +335,13 @@ def scrie(continut: dict, cheama) -> str:
         try:
             date = cheama({
                 "contents": [{"role": "user", "parts": [{"text": cerere}]}],
-                "generationConfig": {"temperature": 1.0, "maxOutputTokens": 400},
+                "generationConfig": {"temperature": 1.0, "maxOutputTokens": 900},
             })
             ultim = (date["candidates"][0]["content"]["parts"][0]["text"] or "").strip()
         except Exception as e:  # noqa: BLE001 — imaginea nu merită să oprească postarea
             print(f"  promptul de imagine nu a putut fi scris: {str(e)[:150]}")
             return ""
-        ultim = ultim.strip().strip('"').strip()
+        ultim = doar_promptul(ultim)
         probleme = _pare_slab(ultim)
         if not probleme:
             return ultim

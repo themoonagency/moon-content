@@ -78,7 +78,10 @@ class Config:
     SCHELETE_RECENTE: list = []
     IMAGINI_RECENTE: list = []
     # stilul vizual e AL CLIENTULUI, nu al agentiei
-    IMAGINE_STIL = "foto"
+    IMAGINE_STIL = "foto"          # un fel din imagine_prompt.FELURI, sau „rulaj"
+    IMAGINE_RULAJ = ""             # felurile bifate pentru rulaj, separate prin virgula
+    FELURI_RECENTE: list = []      # felurile ultimelor poze, de la panou (rulajul nu le repeta)
+    FEL_AZI = ""                   # felul ales pentru ciorna in lucru
     IMAGINE_PALETA = ""
     IMAGINE_EVITA = ""
     IMAGINE_LUMINA = ""            # naturala | calda | studio | contrast | inchisa
@@ -192,6 +195,9 @@ class Config:
         self.ORG_CUI = c.get("cui") or ""
         self.ORG_ORAS = c.get("oras") or ""
         self.IMAGINE_STIL = c.get("imagine_stil") or Config.IMAGINE_STIL
+        self.IMAGINE_RULAJ = c.get("imagine_rulaj") or ""
+        self.FELURI_RECENTE = list(client.get("feluri_recente") or [])
+        self.FEL_AZI = ""
         self.IMAGINE_PALETA = c.get("imagine_paleta") or ""
         self.IMAGINE_EVITA = c.get("imagine_evita") or ""
         self.IMAGINE_LUMINA = c.get("imagine_lumina") or ""

@@ -23,7 +23,7 @@ import imagine_ig as imagine_ig_mod
 import seo
 from content_gen import CONSUM, curata_linkurile, generate_authority_draft
 from content_gen_catalog import genereaza_pentru_produs
-from image_gen import afis_instagram, compune_din_produs, generate_image, image_from_url
+from image_gen import afis_instagram, compune_coperta, compune_din_produs, generate_image, image_from_url
 import telegram_bot as tg
 
 
@@ -33,14 +33,14 @@ FARA_PRODUS = (" Do not show the product itself or any packaging, bottle, box, l
                "name, logo or text of it — the scene must work without the product.")
 
 
-def genereaza_imagine(prompt: str) -> tuple[bytes | None, str]:
+def genereaza_imagine(prompt: str, cu_logo: bool = True) -> tuple[bytes | None, str]:
     """O reîncercare, apoi renunțăm — dar spunem clar că lipsește.
     Înainte, un eșec de imagine trecea tăcut și abia la publicare se vedea
     că Facebook și Instagram au fost sărite."""
     ultima = ""
     for incercare in (1, 2):
         try:
-            return generate_image(prompt), ""
+            return generate_image(prompt, cu_logo=cu_logo), ""
         except Exception as e:  # noqa: BLE001 — orice eșec de imagine e recuperabil
             ultima = str(e)[:300]
             print(f"  imaginea a eșuat (încercarea {incercare}): {ultima}")
@@ -134,6 +134,12 @@ def pentru_client(client: dict) -> None:
     # Produsul nu se deseneaza niciodata dupa nume: pe 11 sept poza lui La Favorite
     # n-a venit de pe evero.ro, motorul a cerut „Fotografie de produs: Jean Paul
     # Gaultier La Favorite", iar modelul si-a imaginat alt flacon.
+    # Felul pozei principale (foto, ilustratie, coperta…) se alege O DATA pe ciorna: pe
+    # „rulaj" e aleator, iar promptul si compunerea trebuie sa vada acelasi fel.
+    config.FEL_AZI = imagine_prompt.alege_fel()
+    if config.FEL_AZI != "foto" or (config.IMAGINE_STIL or "").strip().lower() == "rulaj":
+        print(f"  felul pozei: {config.FEL_AZI}" + (" (rulaj)" if config.IMAGINE_STIL == "rulaj" else ""))
+
     mod = (produs.get("mod_imagine") or "wow") if produs else ""
     poza_reala, motiv_poza = None, ""
     if produs and mod in ("wow", "catalog"):
@@ -200,7 +206,15 @@ def pentru_client(client: dict) -> None:
         if fara_produs:
             prompt_img = prompt_img.rstrip() + FARA_PRODUS
         prompt_img = prompt_img.rstrip() + imagine_prompt.fara_text_la_generare()
-        imagine, eroare_img = genereaza_imagine(prompt_img)
+        coperta = config.FEL_AZI == "coperta"
+        imagine, eroare_img = genereaza_imagine(prompt_img, cu_logo=not coperta)
+        if imagine and coperta:
+            titlu_coperta = continut.get("seo_title") or continut.get("topic_title") or ""
+            try:
+                imagine = compune_coperta(imagine, titlu_coperta)
+                print("  coperta: titlul pus pe poza")
+            except Exception as e:  # noqa: BLE001 — fara titlu, poza ramane buna de folosit
+                print(f"  coperta nu s-a putut compune ({str(e)[:120]}) — rămâne poza simplă")
 
     # Afișul de Instagram: a doua imagine, cu text mare pe ea. Se face doar dacă
     # omul a bifat-o ȘI dacă Instagram e chiar în canalele slotului — altfel am
@@ -230,6 +244,8 @@ def pentru_client(client: dict) -> None:
         "seo_probleme": probleme_seo,
         # promptul se vede in panou: altfel nu poti judeca DE CE a iesit poza asa
         "image_prompt": continut.get("image_prompt") or "",
+        # felul pozei principale; panoul il tine ca rulajul sa nu repete acelasi fel
+        "imagine_fel": config.FEL_AZI or "",
         "image_prompt_ig": prompt_ig if imagine_ig else "",
         "produs_ext_id": (produs or {}).get("ext_id"),
         "idee_id": (config.IDEE or {}).get("id"),
