@@ -15,6 +15,7 @@ Zilnic în sus, unde prețul o acoperă.
 """
 
 from __future__ import annotations
+import html as html_lib
 import re
 
 from config import config
@@ -58,8 +59,24 @@ FONT = {
 }
 
 
+# Cuvinte dupa care o fraza nu se poate opri: „…pentru e-commerce în" arata a greseala.
+LEGATURI = {"în", "in", "de", "din", "pentru", "la", "cu", "pe", "și", "si", "sau", "un", "o",
+            "a", "al", "ale", "ai", "că", "ca", "care", "mai", "despre", "prin", "spre", "fără",
+            "fara", "sub", "după", "dupa", "între", "intre", "ce", "cum", "cât", "cat", "și/sau"}
+
+
 def _curat(t: str, cate: int) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", t or "")).strip()[:cate]
+    """Text curat, scurtat DOAR la cuvinte intregi. Pana pe 11 sept se taia la 60 de
+    caractere oriunde pica, iar pe afis au iesit „…SEO și GEO pentru e-commerce în"
+    si „…pentru un". Un H2 care incape ramane intreg; unul prea lung se opreste la
+    ultimul cuvant plin, fara legatura atarnata la coada, cu „…"."""
+    t = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", t or ""))).strip()
+    if len(t) <= cate:
+        return t
+    cuv = t[:cate + 1].split(" ")[:-1]
+    while cuv and cuv[-1].lower().strip(",;:–-") in LEGATURI:
+        cuv.pop()
+    return " ".join(cuv).rstrip(" ,;:–-") + "…"
 
 
 def _puncte(continut: dict, cate: int) -> list:
@@ -68,13 +85,13 @@ def _puncte(continut: dict, cate: int) -> list:
     if cate <= 0:
         return []
     html = continut.get("article_html") or ""
-    out = [_curat(x, 60) for x in re.findall(r"<h2[^>]*>(.*?)</h2>", html, re.S | re.I)]
-    out = [x for x in out if 3 < len(x) <= 60]
+    out = [_curat(x, 80) for x in re.findall(r"<h2[^>]*>(.*?)</h2>", html, re.S | re.I)]
+    out = [x for x in out if len(x) > 3]
     if len(out) < cate:
         text = _curat(html, 1200)
         for fraza in re.split(r"(?<=[.!?])\s+", text):
             fraza = fraza.strip()
-            if 20 < len(fraza) <= 70 and fraza not in out:
+            if 20 < len(fraza) <= 90 and fraza not in out:
                 out.append(fraza)
             if len(out) >= cate:
                 break
@@ -86,16 +103,10 @@ def cere(continut: dict) -> str:
     cate = CATE.get((config.IG_TEXT_CAT or "mediu").strip().lower(), 3)
     sablon = SABLOANE.get((config.IG_SABLON or "lista").strip().lower(), SABLOANE["lista"])
     sablon = sablon.replace("{n}", str(max(3, cate)))
-    titlu = _curat(continut.get("seo_title") or continut.get("topic_title") or "", 70)
+    titlu = _curat(continut.get("seo_title") or continut.get("topic_title") or "", 90)
     puncte = _puncte(continut, cate)
 
     accent = (config.IG_ACCENT or "").strip() or "a single strong accent colour"
-    banda = ""
-    if config.IG_BANDA:
-        handle = (config.IG_HANDLE or config.CLIENT_DOMAIN or "").strip()
-        banda = (f"\n- A brand band across the very bottom, in the accent colour, containing "
-                 f"only this text: {handle}" if handle else
-                 "\n- A thin brand band across the very bottom, in the accent colour, left empty")
 
     cerinte = (config.IG_CERINTE or "").strip()
     cerinte = ("\n\nWHAT THE CLIENT ASKED FOR, IN THEIR OWN WORDS (this outranks everything "
@@ -121,7 +132,9 @@ STYLE
 - Accent colour: {accent}. Used for the rule under the headline, the icons and nothing else.
 - Client's palette: {(config.IMAGINE_PALETA or 'neutral').strip()}.
 - Flat vector icons, single colour, no gradients inside them, no emoji.
-- Generous margins. Nothing closer than 6% of the width to any edge.{banda}
+- Generous margins. Nothing closer than 6% of the width to any edge.
+- Do not draw a logo, a footer strip, a handle or a web address: the client's footer
+  with logo and address is added afterwards, below this image.
 
 RULES
 - The headline must be the largest thing in the frame and readable on a phone at

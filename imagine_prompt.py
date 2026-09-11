@@ -37,30 +37,27 @@ INTERZISE = [
     "anything that would work equally well for any other article",
 ]
 
-# Ce ÎNLOCUIEȘTE clișeul. Pentru servicii — unde nu există un produs de pus în
-# poză — răspunsul bun e aproape mereu un moment omenesc, într-un loc real, cu
-# obiecte care se pot atinge.
+# Ce ÎNLOCUIEȘTE clișeul: FELUL cadrului, nu ce e în el. Până pe 11 sept căile
+# aveau exemple concrete (depozit, rampă de marfă, ambalaje, comenzi, tejghea), iar
+# modelul copia exemplele în loc să ia lumea articolului: un articol despre cât
+# costă SEO a primit un depozit cu „FULFILL FASTER" pe un panou. Aici stă doar
+# forma; locul, obiectele și oamenii vin din articol.
 CAI = [
-    ("moment", "un MOMENT dintr-o zi de lucru reală, surprins la firul ierbii: mâinile "
-               "cuiva care face exact lucrul despre care e articolul, într-un loc concret "
-               "(o tejghea, un atelier, o bucătărie de restaurant, o parcare, un birou mic "
-               "și trăit, nu un open-space de catalog)"),
-    ("natura-statica", "o NATURĂ STATICĂ cu obiecte adevărate care spun povestea: hârtii, "
-                       "ambalaje, unelte, o ladă, o etichetă ruptă — aranjate ca și cum "
-                       "tocmai a plecat cineva de acolo. NU pe un birou și NU cu un carnet."),
-    ("metafora", "o METAFORĂ FIZICĂ făcută din lucruri reale, fotografiată ca atare (nu "
-                 "desenată, nu randată): două grămezi inegale, un raft gol lângă unul plin, "
-                 "un ceas lăsat pe masă lângă un teanc de comenzi"),
-    ("detaliu", "un DETALIU foarte apropiat dintr-un obiect din poveste, cu textură: "
-                "hârtie, lemn, metal zgâriat, un ecran stins care reflectă camera"),
-    ("locul-gol", "LOCUL în care se întâmplă povestea, gol, fotografiat larg: un depozit, "
-                  "o rampă de marfă, o vitrină noaptea, un hol, o curte — fără oameni și "
-                  "fără obiecte puse anume, doar locul așa cum e"),
-    ("de-sus", "SCENA VĂZUTĂ DE SUS, de la înălțimea unui om în picioare: o masă de lucru "
-               "întreagă, un tejghea cu tot ce e pe ea, o podea cu urme — plan larg, nu "
-               "prim-plan, cu spațiu în jur"),
-    ("in-miscare", "CEVA ÎN MIȘCARE, prins cu o urmă de blur: o ușă care se închide, o mână "
-                   "care întinde o pungă, o roabă împinsă, hârtii ridicate de curent"),
+    ("moment", "un MOMENT dintr-o zi de lucru reală, surprins pe viu: mâinile cuiva care "
+               "face exact lucrul despre care e articolul, în locul în care se face de obicei"),
+    ("natura-statica", "o NATURĂ STATICĂ cu obiectele adevărate ale subiectului, aranjate ca "
+                       "și cum tocmai a plecat cineva de lângă ele. NU pe un birou și NU cu un carnet."),
+    ("metafora", "o METAFORĂ FIZICĂ făcută din lucruri reale din lumea subiectului, "
+                 "fotografiată ca atare (nu desenată, nu randată): un contrast sau o comparație "
+                 "care se vede dintr-o privire"),
+    ("detaliu", "un DETALIU foarte apropiat al unui obiect central pentru subiect, cu textură "
+                "vizibilă: materialul, uzura, lumina pe el"),
+    ("locul-gol", "LOCUL în care se întâmplă subiectul articolului, fotografiat larg, fără "
+                  "oameni și fără obiecte puse anume — doar locul, așa cum e"),
+    ("de-sus", "SCENA VĂZUTĂ DE SUS, de la înălțimea unui om în picioare: tot spațiul de "
+               "lucru al subiectului, plan larg, nu prim-plan, cu aer în jur"),
+    ("in-miscare", "CEVA ÎN MIȘCARE din lumea subiectului, prins cu o urmă de blur: un gest, "
+                   "un obiect care trece, o ușă, o foaie"),
 ]
 
 
@@ -146,7 +143,18 @@ def _regula_text() -> str:
     if fel == "titlu_sub":
         return ("- Text pe imagine: un titlu de maximum 6 cuvinte și un singur rând sub el, "
                 "de maximum 10 cuvinte, într-o zonă goală a cadrului. Fără alt text.")
-    return "- Fără text, litere, cifre sau logo-uri în imagine."
+    return ("- Fără text, litere, cifre sau logo-uri în imagine — nici în scenă: fără panouri, "
+            "firme, afișe, etichete sau ștampile cu litere pe ele.")
+
+
+def fara_text_la_generare() -> str:
+    """Regula de text pusă și pe cererea către modelul de IMAGINE. Paragraful scris
+    de fotoeditor n-o ducea mai departe, iar pe 11 sept poza de blog a ieșit cu
+    „FULFILL FASTER" pe un panou, deși clientul alesese „fără text"."""
+    fel = (config.IMAGINE_TEXT_PE_POZA or "nu").strip().lower()
+    if fel in ("titlu", "titlu_sub"):
+        return ""
+    return " No text, letters, numbers, signs, labels or logos anywhere in the image."
 
 
 def _cerinte() -> str:
@@ -184,6 +192,10 @@ CUM ALEGI
    uită la un preț și se oprește.
 2. CALEA DE AZI E ALEASĂ, nu o schimbi și nu o amesteci cu alta: {nume_cale}
    {forma_cale}
+   Calea spune doar FELUL cadrului. Locul, obiectele și oamenii vin din lumea articolului
+   de mai sus — cine vede poza lângă titlu trebuie să înțeleagă legătura fără explicații.
+   Nu te lua după un cuvânt din text („e-commerce", „livrare") ca să muți scena în altă
+   meserie decât cea despre care e articolul.
 3. Trebuie să fie o scenă care s-ar putea fotografia AZI, cu un aparat, într-un
    loc care există. Dacă ai nevoie de efecte ca să se înțeleagă, ai ales greșit.
 4. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.

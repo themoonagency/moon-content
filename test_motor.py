@@ -60,6 +60,8 @@ BLOG_API = []
 FB_TEXTE = []
 IG_TEXTE = []
 IMAGINE_PICA = False
+POZE_CERUTE: list = []
+POZE_ANTETE: list = []
 
 
 class Raspuns:
@@ -112,6 +114,12 @@ def fals_request(metoda, url, **kw):
             else {"are_imagine": True, "imagine_key": did + ".jpg"})
         cheie = did + ("-ig" if eIg else "")
         return Raspuns({"ok": True, "url": f"https://post.exemplu.ro/img/{cheie}.jpg"})
+    if ("poza-produs" in url or "poza-blocata" in url) and metoda == "GET":
+        POZE_CERUTE.append(url)
+        POZE_ANTETE.append(dict(kw.get("headers") or {}))
+    if "poza-blocata" in url and metoda == "GET":
+        # firewallul hostingului: raspunde 403 unui robot
+        return Raspuns(None, 403, b"<html>blocked</html>")
     if "poza-produs" in url and metoda == "GET":
         b = io.BytesIO()
         Image.new("RGB", (400, 400), (200, 40, 60)).save(b, format="JPEG")
@@ -352,7 +360,7 @@ cer(not dIG.get("are_imagine_ig"),
 
 PANOU["clienti"][0]["config"].update({
     "ig_separata": True, "ig_sablon": "lista", "ig_format": "4:5",
-    "ig_banda": True, "ig_handle": "@moon · themoonagency.ro"})
+    "ig_banda": True, "ig_logo": True, "ig_handle": "@moon · themoonagency.ro"})
 image_gen._LOGO_CACHE.clear()
 PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear()
 try:
@@ -380,9 +388,62 @@ cer(IG_POZE and IG_POZE[-1].endswith("-ig.jpg"),
     "Instagram primeste afisul (-ig.jpg), nu poza de blog", IG_POZE[-2:])
 cer(FB_POZE and not FB_POZE[-1].endswith("-ig.jpg"),
     "Facebook ramane pe poza de blog", FB_POZE[-2:])
-cer("1024x1536" in MARIMI_CERUTE, "afisul se cere in marimea portret", MARIMI_CERUTE[-3:])
+cer("1024x1024" in MARIMI_CERUTE,
+    "cu subsol, afisul 4:5 se cere patrat: continutul incape intreg deasupra subsolului", MARIMI_CERUTE[-3:])
+cer(_ig.size == (1080, 1350), "afisul iese exact 1080x1350", _ig.size)
 
-PANOU["clienti"][0]["config"].update({"ig_separata": False, "ig_banda": False})
+PANOU["clienti"][0]["config"].update({"ig_separata": False, "ig_banda": False, "ig_logo": False})
+
+# 6c. afisul nu se mai taie, iar subsolul (linia de accent, adresa, logoul) il pune codul.
+# 11 sept: afisul THE MOON Agency a iesit cu titlul taiat sus, fara banda si fara logo —
+# se cerea 2:3 si se taia pe centru la 4:5, iar logoul nu se punea deloc pe afis.
+from PIL import ImageDraw
+def _poster(lat, inalt):
+    im = Image.new("RGB", (lat, inalt), (11, 11, 15))
+    d = ImageDraw.Draw(im)
+    d.rectangle([100, 0, lat - 100, 40], fill=(0, 255, 0))                  # titlul, lipit sus
+    d.rectangle([100, inalt - 40, lat - 100, inalt - 1], fill=(0, 0, 255))  # ultimul rand, lipit jos
+    b = io.BytesIO(); im.save(b, format="PNG"); return b.getvalue()
+def _are(im, culoare, cutie=None, prag=60):
+    zona = im.crop(cutie) if cutie else im
+    return sum(1 for p in zona.getdata() if sum(abs(p[i] - culoare[i]) for i in range(3)) < prag)
+_logo_galben = Image.new("RGBA", (200, 50), (255, 200, 0, 255))
+for _fmt, _gen in (("4:5", (1024, 1536)), ("4:5", (1024, 1024)), ("1:1", (1024, 1024)), ("9:16", (1024, 1536))):
+    _af = Image.open(io.BytesIO(image_gen.compune_afis(
+        _poster(*_gen), _fmt, True, "@moon · themoonagency.ro", "#ff2f4d", _logo_galben)))
+    _W, _H = _af.size
+    cer(_W == 1080 and abs(_W / _H - image_gen._RAPORT_IG[_fmt]) < 0.01,
+        f"[{_fmt} din {_gen[0]}x{_gen[1]}] afisul iese exact in format", _af.size)
+    cer(_are(_af, (0, 255, 0)) > 500 and _are(_af, (0, 0, 255)) > 500,
+        f"[{_fmt} din {_gen[0]}x{_gen[1]}] nimic nu se taie: nici randul de sus, nici cel de jos",
+        [_are(_af, (0, 255, 0)), _are(_af, (0, 0, 255))])
+    _sub = (0, int(_H * 0.9), _W, _H)
+    cer(_are(_af, (255, 200, 0), _sub) > 300, f"[{_fmt}] logoul clientului e in subsol", _are(_af, (255, 200, 0), _sub))
+    cer(_are(_af, (255, 47, 77), _sub) > 300, f"[{_fmt}] linia de accent e in subsol", _are(_af, (255, 47, 77), _sub))
+    cer(_are(_af, (245, 245, 245), _sub, 120) > 40, f"[{_fmt}] adresa e scrisa in subsol, deschis pe fundal inchis",
+        _are(_af, (245, 245, 245), _sub, 120))
+_af = Image.open(io.BytesIO(image_gen.compune_afis(_poster(1024, 1024), "4:5", True, "@moon", "#ff2f4d", None)))
+cer(_are(_af, (255, 200, 0), (0, int(_af.size[1] * 0.9), 1080, _af.size[1])) == 0,
+    "fara bifa de logo, in subsol nu apare niciun logo")
+_af = Image.open(io.BytesIO(image_gen.compune_afis(_poster(1024, 1536), "4:5", False, "", "", None)))
+cer(_are(_af, (0, 0, 255), (0, int(_af.size[1] * 0.9), 1080, _af.size[1])) > 300,
+    "fara banda si fara logo nu ramane subsol gol: continutul coboara pana jos")
+cer(image_gen._cel_mai_apropiat(image_gen.zona_continut("4:5", False), image_gen._MARIMI_OPENAI) == "1024x1536"
+    and image_gen._cel_mai_apropiat(image_gen.zona_continut("4:5", False), image_gen._PROPORTII_GEMINI) == "4:5",
+    "fara subsol, 4:5 se cere portret la OpenAI si fix 4:5 la Gemini")
+
+import imagine_ig as _iig
+_lung = {"seo_title": "Cât costă optimizarea SEO și GEO e-commerce în 2026?", "article_html":
+    "<h2>Cât costă un pachet lunar de SEO și GEO pentru e-commerce în 2026?</h2>"
+    "<h2>Ce factori determină prețul optimizării SEO și GEO pentru un magazin online?</h2>"
+    "<h2>Cum ajută un program de accelerare la optimizarea bugetului de marketing, pas cu pas, "
+    "pentru magazinele care abia pornesc?</h2>"}
+_p = _iig._puncte(_lung, 3)
+cer(_p and _p[0] == "Cât costă un pachet lunar de SEO și GEO pentru e-commerce în 2026?",
+    "un H2 care incape ramane intreg pe afis", _p)
+cer(all(x.rstrip("…?").split()[-1].lower() not in _iig.LEGATURI for x in _p),
+    "niciun punct nu se opreste intr-o legatura („…pentru un”)", _p)
+cer(len(_p) == 3 and _p[2].endswith("…"), "cel prea lung se scurteaza la cuvant intreg, cu „…”", _p)
 
 # 7. Profilul Google: se publica doar daca e in canalele ciornei
 import image_gen
@@ -462,6 +523,42 @@ cer(d8.get("are_imagine") is True and d8.get("imagini") == 0,
     "cand compunerea pica, ramane poza din catalog si nu se factureaza",
     [d8.get("are_imagine"), d8.get("imagini")])
 IMAGINE_PICA = False
+
+# 9b. poza produsului nu vine de pe site (firewall, 403): NU desenam produsul dupa nume.
+# Pe 11 sept, la evero.ro, poza lui La Favorite n-a venit, iar motorul a cerut
+# „Fotografie editoriala de produs: Jean Paul Gaultier La Favorite" — si a iesit alt flacon.
+image_gen.POZA_PAUZA = 0
+PROMPTURI_GENERATE: list = []
+_gen_vechi = generate_draft.generate_image
+def _gen_fals(prompt, *a, **kw):
+    PROMPTURI_GENERATE.append(prompt)
+    return _gen_vechi(prompt, *a, **kw)
+generate_draft.generate_image = _gen_fals
+for _mod in ("catalog", "wow"):
+    image_gen._LOGO_CACHE.clear()
+    PANOU["clienti"][0]["produs"] = dict(PRODUS, mod_imagine=_mod, imagine="https://cdn.exemplu/poza-blocata.jpg")
+    PANOU["drafts"].clear(); APELURI.clear(); PROMPTURI_GENERATE.clear(); POZE_CERUTE.clear()
+    try:
+        generate_draft.main()
+    except SystemExit:
+        pass
+    d9 = list(PANOU["drafts"].values())[0]
+    cer(len(POZE_CERUTE) >= 2, f"[{_mod}] poza refuzata se mai cere o data inainte sa renuntam", len(POZE_CERUTE))
+    cer(not any("Parfum Test 100ml" in p for p in PROMPTURI_GENERATE),
+        f"[{_mod}] fara poza reala, produsul NU se deseneaza dupa nume", PROMPTURI_GENERATE)
+    cer(bool(PROMPTURI_GENERATE) and all("Do not show the product" in p for p in PROMPTURI_GENERATE),
+        f"[{_mod}] scena generata cere explicit sa nu apara produsul", PROMPTURI_GENERATE)
+    cer(not any("/images/edits" in u for _, u in APELURI), f"[{_mod}] fara poza nu se incearca nici compunerea")
+    cer(bool(PROMPTURI_GENERATE) and all("No text, letters" in p for p in PROMPTURI_GENERATE),
+        f"[{_mod}] cererea catre modelul de imagine interzice textul", PROMPTURI_GENERATE)
+    cer(any("poza produsului" in str(x) for x in (d9.get("seo_probleme") or [])),
+        f"[{_mod}] ciorna spune ca poza reala a produsului lipseste", d9.get("seo_probleme"))
+generate_draft.generate_image = _gen_vechi
+_ant = POZE_ANTETE[-1] if POZE_ANTETE else {}
+cer("Mozilla/5.0" in _ant.get("User-Agent", "") and _ant.get("Referer") == PRODUS["url"]
+    and "image/" in _ant.get("Accept", ""),
+    "poza produsului se cere ca un browser, de pe pagina produsului", _ant)
+PANOU["clienti"][0]["produs"] = dict(PRODUS)
 
 # 10. produsele conexe ajung in promptul de catalog
 from content_gen_catalog import _prompt
@@ -885,6 +982,25 @@ for _i in range(1, 40):
     _cai.add(imagine_prompt._cale()[0])
 config.CLIENT_ID = _cid
 cer(len(_cai) == len(imagine_prompt.CAI), "calea se roteste intre clienti", sorted(_cai))
+
+# 11 sept, THE MOON Agency: articol despre cat costa SEO/GEO, poza cu un depozit si
+# „FULFILL FASTER" pe un panou. Caile aveau exemple din logistica (depozit, rampa,
+# ambalaje, comenzi), iar modelul copia exemplele in loc sa ia lumea articolului.
+_toate_caile = " ".join(t for _, t in imagine_prompt.CAI).lower()
+_nise = [w for w in ("depozit", "rampă", "marfă", "ambalaj", "comenzi", "pungă", "roabă",
+                     "ladă", "tejghea", "bucătărie", "parcare", "vitrină") if w in _toate_caile]
+cer(not _nise, "caile spun doar felul cadrului, fara obiecte dintr-o nisa anume", _nise)
+_c5 = imagine_prompt.cere(CIORNA_IMG)
+cer("vin din lumea articolului" in _c5, "promptul cere ca locul si obiectele sa vina din articol")
+cer("panouri" in _c5 and "etichete" in _c5,
+    "fara text inseamna si fara panouri si etichete in scena, nu doar fara titlu scris peste")
+cer(hasattr(imagine_prompt, "fara_text_la_generare") and
+    "No text, letters" in imagine_prompt.fara_text_la_generare(),
+    "regula de text ajunge si la modelul de imagine, nu doar la cel care scrie promptul")
+config.IMAGINE_TEXT_PE_POZA = "titlu"
+cer(hasattr(imagine_prompt, "fara_text_la_generare") and imagine_prompt.fara_text_la_generare() == "",
+    "cand omul cere titlu pe poza, nu il interzicem la generare")
+config.IMAGINE_TEXT_PE_POZA = "nu"
 _c4 = imagine_prompt.cere(CIORNA_IMG)
 cer("CALEA DE AZI E ALEASĂ" in _c4 and _c4.count("MOMENT dintr-o zi") + _c4.count("NATURĂ STATICĂ")
     + _c4.count("METAFORĂ FIZICĂ") + _c4.count("DETALIU foarte") + _c4.count("LOCUL în care")
@@ -945,7 +1061,8 @@ cer("GRAPHIC DESIGN task, not a photograph" in cig,
 cer("Cat costa reclamele pe TikTok in 2026" in cig, "titlul articolului se scrie PE imagine")
 cer("Bugetul minim" in cig and "Ce se schimba in 2026" in cig,
     "punctele se scot din H2-urile articolului, nu le scrie omul")
-cer("@atelier · exemplu.ro" in cig, "banda de brand poarta ce a scris clientul")
+cer("@atelier · exemplu.ro" not in cig and "added afterwards" in cig,
+    "adresa din banda n-o mai deseneaza modelul: subsolul il pune codul, ca sa iasa mereu")
 cer("#ff2f4d" in cig, "culoarea de accent ajunge in cerere")
 cer("diacritics" in cig, "i se cere sa pastreze diacriticele — altfel iese „Cat costa\" fara ele")
 

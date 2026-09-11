@@ -100,6 +100,7 @@ class Config:
     IG_ACCENT = ""
     IG_FONT = "gros"               # gros | elegant | simplu
     IG_BANDA = False
+    IG_LOGO = False                # logoul clientului pus de cod in subsolul afisului
     IG_HANDLE = ""
     IG_CERINTE = ""
     AUTOR_NUME = ""
@@ -208,6 +209,7 @@ class Config:
         self.IG_ACCENT = (c.get("ig_accent") or "").strip()
         self.IG_FONT = c.get("ig_font") or Config.IG_FONT
         self.IG_BANDA = _bifa(c.get("ig_banda"))
+        self.IG_LOGO = _bifa(c.get("ig_logo"))
         self.IG_HANDLE = (c.get("ig_handle") or "").strip()
         self.IG_CERINTE = (c.get("ig_cerinte") or "").strip()
         self.IDEE = client.get("idee") or None

@@ -10,8 +10,11 @@ eroare vagă ("media URI doesn't meet our requirements").
 from __future__ import annotations
 import base64
 import io
+import math
+import re
+import time
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 import retea
 
@@ -173,15 +176,39 @@ def _png_to_jpeg(png_bytes: bytes, cu_logo: bool = True, raport: float | None = 
     return out.getvalue()
 
 
-def image_from_url(url: str, cu_logo: bool = True) -> bytes:
+# Firewallurile de hosting (Wordfence, Imunify360, Cloudflare) refuza des un user-agent
+# de robot sau o poza ceruta „din senin", fara pagina de pe care vine. Pe 11 sept poza
+# lui La Favorite n-a venit de pe evero.ro. Cerem ca un browser deschis pe pagina
+# produsului — e poza publica a clientului, pe care oricum o publicam pentru el.
+ANTETE_POZA = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"),
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    "Accept-Language": "ro-RO,ro;q=0.9,en;q=0.8",
+}
+POZA_PAUZA = 2   # secunde intre cele doua incercari; testele o pun pe 0
+
+
+def image_from_url(url: str, cu_logo: bool = True, referer: str | None = None) -> bytes:
     """Poza produsului din magazin, adusă ca JPEG. Cu `cu_logo=False` NU se pune
     logoul — cazul în care poza urmează să intre în compunerea „wow", unde logoul
-    se adaugă la final, peste imaginea compusă."""
-    r = requests.get(url, timeout=60, headers={"User-Agent": "MoonPost/1.0"})
-    r.raise_for_status()
-    if len(r.content) < 500:
-        raise RuntimeError("Poza produsului e prea mică sau lipsește.")
-    return _png_to_jpeg(r.content, cu_logo=cu_logo)
+    se adaugă la final, peste imaginea compusă. `referer` = pagina produsului."""
+    antete = dict(ANTETE_POZA)
+    if referer:
+        antete["Referer"] = referer
+    ultima: Exception | None = None
+    for incercare in (1, 2):
+        try:
+            r = requests.get(url, timeout=60, headers=antete)
+            r.raise_for_status()
+            if len(r.content) < 500:
+                raise RuntimeError("poza e prea mică sau lipsește")
+            return _png_to_jpeg(r.content, cu_logo=cu_logo)
+        except Exception as e:  # noqa: BLE001 — 403 de firewall, timeout, HTML în loc de poză
+            ultima = e
+            if incercare == 1 and POZA_PAUZA:
+                time.sleep(POZA_PAUZA)
+    raise RuntimeError(f"poza produsului nu a venit ({str(ultima)[:160]})")
 
 
 OPENAI_EDITS_URL = "https://api.openai.com/v1/images/edits"
@@ -263,3 +290,151 @@ def generate_image(prompt: str, size: str | None = None,
     b64 = data["data"][0]["b64_json"]
     png_bytes = base64.b64decode(b64)
     return _png_to_jpeg(png_bytes, cu_logo=cu_logo, raport=raport)
+
+
+# ---------------------------------------------------------------- afisul de Instagram
+#
+# Pana pe 11 sept afisul se cerea in 2:3 (OpenAI nu stie 4:5) si se TAIA pe centru la
+# 4:5: 128 px sus si 128 px jos. Pe o fotografie nu se vede; pe un afis taietura a luat
+# titlul de sus si banda de jos. Logoul nu se punea deloc, iar banda o desena modelul
+# (cand voia). Acum modelul deseneaza doar continutul, iar codul:
+#   1. alege marimea de generare cea mai apropiata de zona in care intra continutul,
+#   2. il incadreaza INTREG in formatul cerut (nu taie nimic; restul = culoarea fundalului),
+#   3. pune dedesubt subsolul: linia de accent + adresa (banda) si logoul clientului.
+
+IG_LATIME = 1080
+SUBSOL_PROC = 0.10                     # cat din inaltime ia subsolul
+_RAPORT_IG = {"4:5": 4 / 5, "1:1": 1.0, "9:16": 9 / 16}
+_MARIMI_OPENAI = {"1024x1024": 1.0, "1024x1536": 2 / 3, "1536x1024": 3 / 2}
+_PROPORTII_GEMINI = {"1:1": 1.0, "2:3": 2 / 3, "3:2": 3 / 2, "3:4": 3 / 4, "4:3": 4 / 3,
+                     "4:5": 4 / 5, "5:4": 5 / 4, "9:16": 9 / 16, "16:9": 16 / 9}
+_FONTURI = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",      # runnerul GitHub (Ubuntu)
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",          # Mac
+    "/Library/Fonts/Arial Bold.ttf",
+]
+
+
+def _cel_mai_apropiat(tinta: float, optiuni: dict) -> str:
+    return min(optiuni, key=lambda k: abs(math.log(optiuni[k] / tinta)))
+
+
+def zona_continut(format_cerut: str | None, cu_subsol: bool) -> float:
+    """Raportul latime/inaltime al zonei in care intra ce deseneaza modelul."""
+    raport = _RAPORT_IG.get((format_cerut or "").strip(), 4 / 5)
+    return raport / (1 - SUBSOL_PROC) if cu_subsol else raport
+
+
+def _culoare_hex(text: str) -> tuple | None:
+    m = re.search(r"#?\b([0-9a-fA-F]{6})\b", text or "")
+    return tuple(int(m.group(1)[i:i + 2], 16) for i in (0, 2, 4)) if m else None
+
+
+def _fundal_din(img: Image.Image) -> tuple:
+    """Culoarea fundalului afisului: mediana colturilor (acolo nu e text)."""
+    px = []
+    for x0, y0 in ((0, 0), (img.width - 8, 0), (0, img.height - 8), (img.width - 8, img.height - 8)):
+        px.extend(img.crop((x0, y0, x0 + 8, y0 + 8)).getdata())
+    return tuple(sorted(p[i] for p in px)[len(px) // 2] for i in range(3))
+
+
+def _luminanta(c: tuple) -> float:
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def _font(marime: int):
+    for cale in _FONTURI:
+        try:
+            return ImageFont.truetype(cale, marime)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size=marime)
+    except TypeError:                   # Pillow vechi
+        return ImageFont.load_default()
+
+
+def logo_imagine() -> Image.Image | None:
+    date = _logo_bytes()
+    if not date:
+        return None
+    try:
+        return Image.open(io.BytesIO(date)).convert("RGBA")
+    except Exception:  # noqa: BLE001 — un logo stricat nu opreste afisul
+        print("  avertisment: logoul clientului nu se poate citi ca imagine")
+        return None
+
+
+def compune_afis(continut_png: bytes, format_cerut: str | None, banda: bool, handle: str,
+                 accent: str, logo: Image.Image | None) -> bytes:
+    """Afisul final: continutul intreg, incadrat, plus subsolul desenat de cod."""
+    raport = _RAPORT_IG.get((format_cerut or "").strip(), 4 / 5)
+    W, H = IG_LATIME, round(IG_LATIME / raport)
+    img = Image.open(io.BytesIO(continut_png)).convert("RGB")
+    fundal = _fundal_din(img)
+    subsol = bool(banda) or logo is not None
+    hs = round(H * SUBSOL_PROC) if subsol else 0
+
+    panza = Image.new("RGB", (W, H), fundal)
+    zona_h = H - hs
+    k = min(W / img.width, zona_h / img.height)
+    nw, nh = max(1, round(img.width * k)), max(1, round(img.height * k))
+    panza.paste(img.resize((nw, nh), Image.LANCZOS), ((W - nw) // 2, (zona_h - nh) // 2))
+
+    if subsol:
+        d = ImageDraw.Draw(panza)
+        y0 = H - hs
+        m = round(W * 0.06)
+        text_c = (245, 245, 245) if _luminanta(fundal) < 140 else (18, 18, 22)
+        acc = _culoare_hex(accent) or text_c
+        if banda:
+            d.rectangle([m, y0, W - m, y0 + max(4, round(H * 0.004))], fill=acc)
+        x_liber = m
+        if logo is not None:
+            lh = round(hs * 0.52)
+            lw = max(1, round(logo.width * lh / logo.height))
+            if lw > W * 0.42:
+                lw = round(W * 0.42)
+                lh = max(1, round(logo.height * lw / logo.width))
+            mic = logo.resize((lw, lh), Image.LANCZOS)
+            baza = panza.convert("RGBA")
+            baza.alpha_composite(mic, dest=(m, y0 + (hs - lh) // 2))
+            panza = baza.convert("RGB")
+            d = ImageDraw.Draw(panza)
+            x_liber = m + lw + round(W * 0.04)
+        text = (handle or "").strip() if banda else ""
+        if text:
+            marime = round(hs * 0.30)
+            f = _font(marime)
+            while marime > 12 and d.textlength(text, font=f) > (W - m) - x_liber:
+                marime -= 2
+                f = _font(marime)
+            x = (W - m) - d.textlength(text, font=f)
+            d.text((x, y0 + hs / 2), text, font=f, fill=text_c, anchor="lm")
+
+    out = io.BytesIO()
+    panza.save(out, format="JPEG", quality=92)
+    return out.getvalue()
+
+
+def afis_instagram(prompt: str) -> bytes:
+    """Genereaza continutul afisului in marimea cea mai potrivita si il compune."""
+    logo = logo_imagine() if config.IG_LOGO else None
+    subsol = bool(config.IG_BANDA) or logo is not None
+    zona = zona_continut(config.IG_FORMAT, subsol)
+    if config.FURNIZOR_IMAGINE == "gemini":
+        png = _gemini_imagine([{"type": "text", "text": prompt}], None,
+                              _cel_mai_apropiat(zona, _PROPORTII_GEMINI))
+    else:
+        resp = retea.post(OPENAI_IMAGES_URL, headers={
+            "Authorization": f"Bearer {config.OPENAI_API_KEY}", "Content-Type": "application/json",
+        }, json={
+            "model": config.MODEL_IMAGINE, "prompt": prompt,
+            "size": _cel_mai_apropiat(zona, _MARIMI_OPENAI),
+            "quality": _CALITATE.get(config.OPENAI_IMAGE_QUALITY, "high"), "n": 1,
+        }, timeout=120)
+        resp.raise_for_status()
+        png = base64.b64decode(resp.json()["data"][0]["b64_json"])
+    return compune_afis(png, config.IG_FORMAT, bool(config.IG_BANDA),
+                        config.IG_HANDLE or config.CLIENT_DOMAIN or "", config.IG_ACCENT, logo)

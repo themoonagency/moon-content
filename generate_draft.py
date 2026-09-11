@@ -23,8 +23,14 @@ import imagine_ig as imagine_ig_mod
 import seo
 from content_gen import CONSUM, curata_linkurile, generate_authority_draft
 from content_gen_catalog import genereaza_pentru_produs
-from image_gen import compune_din_produs, generate_image, image_from_url
+from image_gen import afis_instagram, compune_din_produs, generate_image, image_from_url
 import telegram_bot as tg
+
+
+# Scena de rezerva cand poza reala a produsului nu vine: se vede atmosfera
+# articolului, nu un produs inventat.
+FARA_PRODUS = (" Do not show the product itself or any packaging, bottle, box, label, brand "
+               "name, logo or text of it — the scene must work without the product.")
 
 
 def genereaza_imagine(prompt: str) -> tuple[bytes | None, str]:
@@ -123,6 +129,28 @@ def pentru_client(client: dict) -> None:
     if probleme_seo:
         print("  de verificat: " + "; ".join(probleme_seo))
 
+    # Poza REALA a produsului se aduce inainte de orice: de ea depinde daca punem
+    # produsul in scena, il lasam ca atare sau — daca nu vine — facem o scena FARA el.
+    # Produsul nu se deseneaza niciodata dupa nume: pe 11 sept poza lui La Favorite
+    # n-a venit de pe evero.ro, motorul a cerut „Fotografie de produs: Jean Paul
+    # Gaultier La Favorite", iar modelul si-a imaginat alt flacon.
+    mod = (produs.get("mod_imagine") or "wow") if produs else ""
+    poza_reala, motiv_poza = None, ""
+    if produs and mod in ("wow", "catalog"):
+        if produs.get("imagine"):
+            try:
+                poza_reala = image_from_url(produs["imagine"], cu_logo=(mod == "catalog"),
+                                            referer=produs.get("url") or None)
+            except Exception as e:  # noqa: BLE001
+                motiv_poza = str(e)[:160]
+                print(f"  poza produsului nu s-a putut lua ({motiv_poza})")
+        else:
+            motiv_poza = "produsul n-are poză în catalog"
+    fara_produs = bool(produs) and mod in ("wow", "catalog") and poza_reala is None
+    if fara_produs:
+        probleme_seo.append("poza produsului nu s-a putut lua de pe site (" + motiv_poza +
+                            ") — imaginea e o scenă FĂRĂ produs; pune poza reală înainte de aprobare")
+
     # Promptul de imagine se scrie ACUM, cu articolul terminat in fata — nu in
     # aceeasi cerere cu articolul, unde primea cea mai putina atentie si iesea
     # „laptop cu grafice", fara legatura cu ce scrisese modelul.
@@ -130,8 +158,7 @@ def pentru_client(client: dict) -> None:
     # NU si la catalog cand punem in scena poza reala a produsului: acolo
     # promptul descrie ce e IN JURUL produsului, iar produsul ramane neatins.
     # Un prompt scris pentru o scena cu totul noua ar strica exact compunerea.
-    pune_in_scena = bool(produs and produs.get("imagine")
-                         and (produs.get("mod_imagine") or "wow") == "wow")
+    pune_in_scena = poza_reala is not None and mod == "wow"
     if not pune_in_scena:
         from content_gen import cheama_modelul
         prompt_nou = imagine_prompt.scrie(continut, cheama_modelul)
@@ -145,33 +172,24 @@ def pentru_client(client: dict) -> None:
     imagine, eroare_img = None, ""
     poza_costa = True          # dacă a trecut pe la OpenAI, se pune la socoteală
 
-    if produs and produs.get("imagine"):
-        mod = produs.get("mod_imagine") or "wow"
-        try:
-            bruta = image_from_url(produs["imagine"], cu_logo=(mod == "catalog"))
-            if mod == "catalog":
-                imagine, poza_costa = bruta, False
-                print("  imaginea e poza din catalog, neatinsă")
-            elif mod == "generata":
-                # omul a cerut dinadins imagine desenata, nu poza din catalog
-                pass
-            elif mod == "wow":
-                # poza reală devine punctul de plecare: produsul rămâne el, dar intră într-o scenă
-                try:
-                    imagine = compune_din_produs(bruta, continut["image_prompt"])
-                    print("  imaginea: poza produsului, pusă în scenă")
-                except Exception as e:  # noqa: BLE001
-                    print(f"  compunerea a eșuat ({str(e)[:120]}), rămân la poza din catalog")
-                    imagine, poza_costa = bruta, False
-        except Exception as e:  # noqa: BLE001
-            print(f"  poza produsului nu s-a putut lua ({str(e)[:120]})")
+    if poza_reala is not None:
+        if mod == "catalog":
+            imagine, poza_costa = poza_reala, False
+            print("  imaginea e poza din catalog, neatinsă")
+        else:
+            # poza reală devine punctul de plecare: produsul rămâne el, dar intră într-o scenă
+            try:
+                imagine = compune_din_produs(poza_reala, continut["image_prompt"])
+                print("  imaginea: poza produsului, pusă în scenă")
+            except Exception as e:  # noqa: BLE001
+                print(f"  compunerea a eșuat ({str(e)[:120]}), rămân la poza din catalog")
+                imagine, poza_costa = poza_reala, False
 
     if not imagine:
-        # In fluxul de catalog promptul e scris pentru PUNEREA IN SCENA a pozei
-        # reale („nu descrie produsul, el ramane neschimbat"), deci folosit la
-        # generare din nimic dadea o masa goala, frumos luminata, fara produs.
         prompt_img = continut.get("image_prompt") or ""
-        if produs and prompt_img:
+        # Numele produsului intra in prompt DOAR cand omul a cerut dinadins poza
+        # desenata („generata"). Altfel modelul inventeaza un produs care nu e al lui.
+        if produs and prompt_img and mod == "generata":
             prompt_img = (
                 f"Fotografie editoriala de produs: {produs.get('nume') or 'produsul'}. "
                 + prompt_img
@@ -179,6 +197,9 @@ def pentru_client(client: dict) -> None:
         if not prompt_img.strip():
             prompt_img = (f"Fotografie editoriala, lumina naturala, pentru un articol despre "
                           f"{continut.get('topic_title') or config.CLIENT_NICHE or 'subiectul articolului'}.")
+        if fara_produs:
+            prompt_img = prompt_img.rstrip() + FARA_PRODUS
+        prompt_img = prompt_img.rstrip() + imagine_prompt.fara_text_la_generare()
         imagine, eroare_img = genereaza_imagine(prompt_img)
 
     # Afișul de Instagram: a doua imagine, cu text mare pe ea. Se face doar dacă
@@ -188,7 +209,7 @@ def pentru_client(client: dict) -> None:
     if config.IG_SEPARATA and "ig" in config.CANALE:
         prompt_ig = imagine_ig_mod.scrie(continut)
         try:
-            imagine_ig = generate_image(prompt_ig, format_cerut=config.IG_FORMAT, cu_logo=False)
+            imagine_ig = afis_instagram(prompt_ig)
             print("  imaginea de Instagram: afiș " + (config.IG_SABLON or "lista"))
         except Exception as e:  # noqa: BLE001 — afișul nu merită să oprească postarea
             print(f"  afișul de Instagram nu a ieșit ({str(e)[:120]}) — rămâne poza de blog")
