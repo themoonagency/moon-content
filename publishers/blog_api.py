@@ -3,7 +3,10 @@ Publicare pe un blog care expune un API propriu (alternativa la WordPress).
 
 Contractul asteptat de la site-ul clientului:
     POST <BLOG_API_URL>   Authorization: Bearer <token>
-        {"title", "excerpt", "content" (HTML), "image", "date", "tags"}
+        {"title", "excerpt", "content" (HTML), "image", "date", "tags",
+         "author": {"type": "Person"|"Organization", "name", "role"?, "url"?},
+         "organization": {"name", "vat_id"?, "city"?, "url"?}}
+        (content are deja semnatura vizibila „Scris de …", clasa moon-autor)
         -> {"ok": true, "slug": "...", "url": "/blog/slug"}
     GET  <BLOG_API_URL>   Authorization: Bearer <token>
         -> lista articolelor existente (pentru anti-duplicat)
@@ -58,6 +61,8 @@ def publish_article(
     meta_description: str,
     image_url: str | None = None,
     tags: list[str] | None = None,
+    author: dict | None = None,
+    organization: dict | None = None,
 ) -> dict:
     """Trimite articolul. Intoarce {"id", "link", "image_url"} ca WordPress,
     ca sa poata fi folosit la fel mai departe (Facebook/Instagram)."""
@@ -71,6 +76,11 @@ def publish_article(
         payload["image"] = image_url
     if tags:
         payload["tags"] = [t for t in tags if t][:8]
+    # cine semneaza: site-ul il poate arata si pune in datele lui structurate
+    if author and author.get("name"):
+        payload["author"] = author
+    if organization and organization.get("name"):
+        payload["organization"] = organization
 
     resp = requests.post(config.BLOG_API_URL, json=payload, headers=_antete(), timeout=60)
     _explica(resp)

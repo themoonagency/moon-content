@@ -17,6 +17,10 @@ on:
         required: false
         default: "nu"
         type: string
+      draft_id:
+        description: "Doar imaginile unei ciorne scrise de motorul din worker (mp12)"
+        required: false
+        type: string
 
 # O singura rulare de generare o data. Fara asta, cronul propriu, pasul din
 # fluxul de publicare si pornirea din panou porneau trei rulari deodata, si
@@ -25,7 +29,8 @@ concurrency:
   # un grup PE CLIENT: „Genereaza acum" apasat pe mai multi clienti ruleaza in paralel.
   # Cu un singur grup, GitHub tine un singur run in asteptare si le ANULA pe celelalte
   # („Canceling since a higher priority waiting request exists", 11 sept). Dublurile le opreste lesa gen-<client>-<slot> din panou.
-  group: moon-post-generare-${{ inputs.client_id || 'programat' }}
+  # imaginile unei ciorne au grupul ciornei: doua ciorne ale aceluiasi client nu se anuleaza intre ele
+  group: moon-post-generare-${{ inputs.draft_id || inputs.client_id || 'programat' }}
   cancel-in-progress: false
 
 jobs:
@@ -49,4 +54,5 @@ jobs:
           CRON_KEY: ${{ secrets.CRON_KEY }}
           CLIENT_ID: ${{ inputs.client_id }}
           FORTEAZA: ${{ inputs.forteaza }}
+          DRAFT_ID: ${{ inputs.draft_id }}
         run: python generate_draft.py

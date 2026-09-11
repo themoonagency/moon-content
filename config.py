@@ -46,7 +46,11 @@ class Config:
     CLIENT_SUBIECTE = ""
     CLIENT_CTA = ""
     CLIENT_CTA_LINK = ""      # unde duce indemnul
-    CLIENT_CTA_TIP = "text"   # text | link | buton
+    CLIENT_CTA_TIP = "text"   # text | link | buton | contur | caseta
+    CLIENT_CTA_CULOARE = ""   # #rrggbb, gol = rosul implicit (vezi cta.py)
+    CLIENT_CTA_BUTON = ""     # textul de pe buton, gol = fraza din CLIENT_CTA
+    CLIENT_CTA_DEASUPRA = ""  # randul scurt de deasupra butonului
+    CLIENT_CTA_POZITIE = "final"  # final | intro | ambele
     FLUX = "autoritate"
 
     WP_URL = ""
@@ -145,6 +149,10 @@ class Config:
         self.CLIENT_CTA = c.get("cta") or ""
         self.CLIENT_CTA_LINK = (c.get("cta_link") or "").strip()
         self.CLIENT_CTA_TIP = c.get("cta_tip") or "text"
+        self.CLIENT_CTA_CULOARE = (c.get("cta_culoare") or "").strip()
+        self.CLIENT_CTA_BUTON = (c.get("cta_buton") or "").strip()
+        self.CLIENT_CTA_DEASUPRA = (c.get("cta_deasupra") or "").strip()
+        self.CLIENT_CTA_POZITIE = c.get("cta_pozitie") or "final"
 
         self.WP_URL = (c.get("wp_url") or "").rstrip("/")
         self.WP_USER = c.get("wp_user") or ""

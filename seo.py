@@ -160,6 +160,68 @@ def date_structurate(ciorna: dict, adresa: str, adresa_imagine: str | None = Non
     return '<script type="application/ld+json">' + corp + "</script>"
 
 
+CLASA_SEMNATURA = "moon-autor"
+_SEMNATURA_VECHE = re.compile(r'<p\b[^>]*class="' + CLASA_SEMNATURA + r'"[^>]*>.*?</p>\s*', re.I | re.S)
+
+
+def semnatura() -> str:
+    """Randul vizibil „Scris de <nume>, <rol>". Pana pe 11 sept autorul intra DOAR in
+    datele structurate, care se lipeau printr-o actualizare pe care blogul pe API n-o
+    accepta — asa ca pe themoonagency.ro/blog nu se vedea niciun autor. Semnatura din
+    text nu depinde de nimic: pleaca odata cu articolul. Fara autor real semneaza firma."""
+    esc = lambda t: html_lib.escape(t or "", quote=True)
+    nume = (config.AUTOR_NUME or "").strip()
+    firma = (config.CLIENT_NAME or "").strip()
+    if nume:
+        cine = f"<strong>{esc(nume)}</strong>"
+        url = (config.AUTOR_URL or "").strip()
+        if url.lower().startswith(("http://", "https://")):
+            cine = f'<a href="{esc(url)}" rel="author">{cine}</a>'
+        rol = (config.AUTOR_ROL or "").strip()
+        text = "Scris de " + cine + (f", {esc(rol)}" if rol else "")
+    elif firma:
+        text = f"Scris de echipa <strong>{esc(firma)}</strong>"
+    else:
+        return ""
+    return (f'<p class="{CLASA_SEMNATURA}" style="font-size:0.9em;opacity:0.8;margin:0 0 20px">'
+            f"{text}</p>")
+
+
+def cu_semnatura(html: str) -> str:
+    """Pune semnatura sub titlu (sau la inceput, daca articolul n-are H1). Se poate
+    chema de oricate ori: scoate intai semnatura veche, deci la publicare pleaca cea
+    din setarile de ACUM, nu cea de la generare."""
+    h = _SEMNATURA_VECHE.sub("", html or "")
+    bloc = semnatura()
+    if not bloc:
+        return h
+    m = re.search(r"</h1\s*>", h, re.I)
+    if m:
+        return h[:m.end()] + bloc + h[m.end():]
+    return bloc + h
+
+
+def autor_pentru_blog() -> dict:
+    """Campurile autorului si ale firmei, trimise in POST catre blogul pe API. Site-ul
+    le poate randa si pune in datele lui structurate fara sa mai astepte o actualizare."""
+    nume = (config.AUTOR_NUME or "").strip()
+    autor = {"type": "Person" if nume else "Organization",
+             "name": nume or (config.CLIENT_NAME or "").strip()}
+    if nume and (config.AUTOR_ROL or "").strip():
+        autor["role"] = config.AUTOR_ROL.strip()
+    # doar http(s): site-ul poate randa author.url ca link, iar un "javascript:" ar fi XSS pe blogul clientului
+    if nume and (config.AUTOR_URL or "").strip().lower().startswith(("http://", "https://")):
+        autor["url"] = config.AUTOR_URL.strip()
+    org = {"name": (config.CLIENT_NAME or "").strip()}
+    if (config.ORG_CUI or "").strip():
+        org["vat_id"] = config.ORG_CUI.strip()
+    if (config.ORG_ORAS or "").strip():
+        org["city"] = config.ORG_ORAS.strip()
+    if _radacina():
+        org["url"] = _radacina() + "/"
+    return {"author": autor, "organization": org}
+
+
 def controale(ciorna: dict) -> list[str]:
     """Verificarile de dinainte de publicare. Nu opresc nimic — se scriu pe
     ciorna, ca omul sa vada la ce sa se uite. Un articol care pica doua-trei

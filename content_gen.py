@@ -563,4 +563,7 @@ def generate_authority_draft() -> dict:
     if missing:
         raise RuntimeError(f"Câmpuri lipsă din răspunsul Gemini: {missing}")
 
+    # Forma articolului se retine pe ciorna (generate_draft o trimite ca „schelet"). Pana pe
+    # 11 sept nu se punea nicaieri, deci panoul nu stia niciodata ce forme sa ocoleasca.
+    parsed["_schelet"] = _schelet()[0]
     return parsed

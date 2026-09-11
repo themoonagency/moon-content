@@ -67,6 +67,9 @@ def _adresa_imagine_ig(ciorna: dict) -> str | None:
 def publica(ciorna: dict) -> None:
     draft_id = ciorna["id"]
     print(f"  public {draft_id}: {ciorna.get('seo_title')}")
+    # Semnatura autorului se reface din setarile de ACUM: autorul se poate schimba intre
+    # generare si aprobare, iar ciornele scrise inainte de 11 sept n-o au deloc.
+    ciorna["article_html"] = seo.cu_semnatura(ciorna.get("article_html") or "")
 
     lipsa = config.lipsuri_publicare([c for c in str(ciorna.get("canale") or "wp").split(",") if c])
     if lipsa:
@@ -109,6 +112,7 @@ def publica(ciorna: dict) -> None:
                 meta_description=ciorna.get("meta_description") or "",
                 image_url=adresa_img,
                 tags=[t for t in str(ciorna.get("tags") or "").split(",") if t.strip()],
+                **seo.autor_pentru_blog(),
             )
         else:
             wp = wordpress.publish_article(

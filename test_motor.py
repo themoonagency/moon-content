@@ -57,6 +57,7 @@ PANOU = {
 }
 APELURI = []
 BLOG_API = []
+WP_POSTARI: list = []
 FB_TEXTE = []
 IG_TEXTE = []
 IMAGINE_PICA = False
@@ -88,6 +89,10 @@ def fals_request(metoda, url, **kw):
     # --- panoul ---
     if "/api/cron/clients" in url:
         return Raspuns({"ok": True, "clienti": PANOU["clienti"]})
+    if "/api/cron/imagine/" in url:
+        if PANOU.get("imagine_404"):
+            return Raspuns({"ok": False, "eroare": "Ciorna nu exista."}, 404)
+        return Raspuns(PANOU.get("imagine") or {"ok": True, "ciorna": None, "motiv": "nimic"})
     if "/api/cron/topics" in url:
         cid = str((kw.get("params") or {}).get("client_id"))
         return Raspuns({"ok": True, "titluri": PANOU["topics"].get(cid, [])})
@@ -107,6 +112,8 @@ def fals_request(metoda, url, **kw):
         return Raspuns({"ok": True, "ciorne": [d for d in PANOU["drafts"].values() if d.get("stare") == stare]})
     if "/api/cron/image/" in url and metoda == "POST":
         did = url.rsplit("/", 1)[-1]
+        if PANOU.get("image_404"):
+            return Raspuns({"ok": False, "eroare": "Ciorna nu mai exista."}, 404)
         eIg = (kw.get("params") or {}).get("fel") == "ig"
         PANOU["imagini"][did + ("-ig" if eIg else "")] = kw.get("data")
         PANOU["drafts"].setdefault(did, {}).update(
@@ -191,6 +198,7 @@ def fals_request(metoda, url, **kw):
     if "/wp-json/wp/v2/media" in url:
         return Raspuns({"id": 55, "source_url": "https://themoonagency.ro/wp/poza.jpg"})
     if "/wp-json/wp/v2/posts" in url:
+        WP_POSTARI.append(corp)
         return Raspuns({"id": 99, "link": "https://themoonagency.ro/articol-de-test/"})
 
     # --- blog pe API propriu ---
@@ -304,6 +312,8 @@ except SystemExit:
     pass
 d3 = list(PANOU["drafts"].values())[0]
 cer(d3.get("canale") == "wp", "canalele slotului ajung pe ciorna", d3.get("canale"))
+cer(d3.get("schelet") in [x[0] for x in __import__("content_gen").SCHELETE],
+    "forma articolului ajunge pe ciorna (altfel panoul nu stie ce sa ocoleasca data viitoare)", d3.get("schelet"))
 d3["stare"] = "aprobat"
 APELURI.clear()
 check_approvals.main()
@@ -733,6 +743,7 @@ cer('href="https://themoonagency.ro/contact"' in d11["article_html"],
     "indemnul primeste linkul ales in panou")
 cer("border-radius" in d11["article_html"], "pe buton iese buton, nu link simplu")
 
+
 # adresa articolului ajunge in textele de social
 d11["stare"] = "aprobat"
 APELURI.clear()
@@ -741,6 +752,88 @@ cer(any("themoonagency.ro/articol-de-test" in t for t in FB_TEXTE),
     "Facebook primeste adresa articolului", FB_TEXTE[-1:] )
 cer(any("Articolul complet: https://themoonagency.ro/articol-de-test" in t
         for t in IG_TEXTE), "Instagram primeste adresa intreaga, cu https://", IG_TEXTE[-1:])
+
+# --- 13b. indemnul (CTA) personalizabil (mp19): culoare, stil, text deasupra, pozitie ---
+# Pana pe 11 sept: doar text / link / buton rosu fix. Aceleasi siruri exacte stau si in
+# test-motor.mjs (src/motor/cta.js): panoul arata in previzualizare exact ce pune motorul.
+try:
+    import cta as _cta
+except ImportError:
+    _cta = None
+cer(_cta is not None, "exista modulul cta.py (indemnul se construieste intr-un singur loc)")
+if _cta is not None:
+    def _cfg_cta(**kw):
+        baza = {"cta": "Programeaza o discutie", "cta_link": "https://exemplu.ro/contact", "cta_tip": "buton"}
+        baza.update(kw)
+        config.aplica({"id": 9, "nume": "Atelier", "domeniu": "exemplu.ro", "config": baza})
+    _cfg_cta(cta_culoare="#16a34a")
+    cer(_cta.bloc() == '<div class="moon-cta" style="margin:28px 0"><a href="https://exemplu.ro/contact" '
+        'style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:14px 26px;'
+        'border-radius:999px;font-weight:700;border:2px solid #16a34a">Programeaza o discutie</a></div>',
+        "buton plin in culoarea aleasa (verde), text alb", _cta.bloc())
+    _cfg_cta(cta_culoare="#22c55e", cta_tip="buton")
+    cer("color:#111111" in _cta.bloc(), "pe un verde deschis textul butonului iese inchis, ca sa se citeasca", _cta.bloc())
+    _cfg_cta(cta_culoare="rosu aprins")
+    cer("#ff2f4d" in _cta.bloc() and "rosu aprins" not in _cta.bloc(), "o culoare scrisa gresit cade pe rosul implicit")
+    _cfg_cta(cta_culoare="#0af", cta_tip="contur")
+    cer(_cta.bloc() == '<div class="moon-cta" style="margin:28px 0"><a href="https://exemplu.ro/contact" '
+        'style="display:inline-block;background:transparent;color:#00aaff;text-decoration:none;padding:12px 24px;'
+        'border-radius:999px;font-weight:700;border:2px solid #00aaff">Programeaza o discutie</a></div>',
+        "buton contur (si culoarea scurta #0af se intelege)", _cta.bloc())
+    _cfg_cta(cta_tip="link", cta_culoare="#1d4ed8", cta_deasupra="Ai o masina care suna ciudat?",
+             cta_buton="Scrie-ne acum")
+    cer(_cta.bloc() == '<p class="moon-cta" style="margin:28px 0">Ai o masina care suna ciudat? '
+        '<a href="https://exemplu.ro/contact" style="color:#1d4ed8;text-decoration:underline;font-weight:700">'
+        'Scrie-ne acum</a></p>', "link subliniat, cu randul de deasupra si textul propriu", _cta.bloc())
+    _cfg_cta(cta_tip="caseta", cta_culoare="#16a34a", cta_deasupra="Vrei asta la tine?", cta_buton="Cere oferta")
+    cer(_cta.bloc() == '<div class="moon-cta" style="margin:28px 0;padding:22px 24px;border-radius:14px;'
+        'background:#e3f4e9;border-left:5px solid #16a34a;color:#111111"><p style="margin:0 0 12px;'
+        'font-weight:600;color:#111111">Vrei asta la tine?</p><a href="https://exemplu.ro/contact" '
+        'style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:14px 26px;'
+        'border-radius:999px;font-weight:700;border:2px solid #16a34a">Cere oferta</a></div>',
+        "caseta: banda colorata deschis, randul de deasupra si butonul", _cta.bloc())
+    _cfg_cta(cta_tip="buton", cta_deasupra='Pret "special" <azi>', cta_buton="Da & vreau")
+    cer('Pret &quot;special&quot; &lt;azi&gt;' in _cta.bloc() and "Da &amp; vreau" in _cta.bloc(),
+        "textele omului sunt scapate in HTML", _cta.bloc())
+    _cfg_cta(cta_link="javascript:alert(1)")
+    cer(_cta.bloc() == "", "o adresa javascript: nu devine indemn")
+    _cfg_cta(cta_tip="text")
+    cer(_cta.bloc() == "", "pe „doar text\" nu se pune niciun bloc")
+
+    ART = "<h1>Titlu</h1><p>Raspunsul scurt.</p><h2>A</h2><p>Mai mult.</p><p>Programeaza o discutie</p>"
+    _cfg_cta(cta_pozitie="final")
+    _f = _cta.pune(ART)
+    cer(_f.count("moon-cta") == 1 and _f.endswith("</div>") and "<p>Programeaza o discutie</p>" not in _f,
+        "la final, fraza simpla scrisa de model devine indemnul", _f)
+    _cfg_cta(cta_pozitie="intro")
+    _i = _cta.pune(ART)
+    cer(_i.count("moon-cta") == 1 and _i.index("moon-cta") < _i.index("<h2>")
+        and _i.index("moon-cta") > _i.index("Raspunsul scurt."),
+        "dupa introducere: indemnul sta dupa primul paragraf de sub titlu", _i)
+    _cfg_cta(cta_pozitie="ambele")
+    _a = _cta.pune(ART)
+    cer(_a.count("moon-cta") == 2 and _a.index("moon-cta") < _a.index("<h2>"),
+        "pe ambele: unul dupa introducere si unul la final", _a)
+    _cfg_cta(cta_pozitie="ambele")
+    _l = _cta.pune('<h1>T</h1><p>x</p><p>Vezi <a href="https://exemplu.ro/contact">pagina</a></p>')
+    cer(_l.count("moon-cta") == 1, "daca modelul a legat deja indemnul la final, se pune doar cel de sus", _l)
+
+    # si chiar ajunge pe ciorna
+    PANOU["clienti"][0]["config"].update({"cta": "Solicita un audit gratuit", "cta_tip": "caseta",
+        "cta_link": "https://themoonagency.ro/contact", "cta_culoare": "#16a34a", "cta_pozitie": "ambele",
+        "cta_deasupra": "Vrei sa vezi unde pierzi bani?", "cta_buton": "Cere auditul"})
+    PANOU["drafts"].clear(); APELURI.clear()
+    try:
+        generate_draft.main()
+    except SystemExit:
+        pass
+    _dc = list(PANOU["drafts"].values())[0]
+    cer(_dc["article_html"].count("moon-cta") == 2 and "#16a34a" in _dc["article_html"]
+        and "Cere auditul" in _dc["article_html"] and "Vrei sa vezi unde pierzi bani?" in _dc["article_html"],
+        "ciorna primeste indemnul cu stilul, culoarea, textele si pozitia din panou", _dc["article_html"][:400])
+    PANOU["clienti"][0]["config"].update({"cta_tip": "buton", "cta_culoare": "", "cta_pozitie": "",
+                                          "cta_deasupra": "", "cta_buton": ""})
+
 
 # 14. orice furnizor, pe orice fel: text de la ChatGPT, poza de la Nano Banana
 PANOU["clienti"][0]["config"].update({
@@ -961,6 +1054,70 @@ requests.request = _req_v2
 cer(time.time() - _t0 < 1.0,
     "un tag cu multe atribute si fara href nu mai blocheaza rularea",
     f"{(time.time() - _t0):.2f}s")
+
+# --- 15b. semnatura autorului chiar se vede pe articol (mp18) ---
+# 11 sept, themoonagency.ro/blog: niciun autor vizibil si ZERO date structurate. Autorul
+# intra doar in JSON-LD, iar JSON-LD se lipea printr-un PUT pe care /api/blog nu-l accepta.
+PANOU["clienti"][0]["config"].update({
+    "autor_nume": "Felix <Dumitru>", "autor_rol": "fondator", "autor_url": "https://themoonagency.ro/despre",
+    "cui": "RO123", "oras": "Bucuresti", "blog_tip": "api",
+    "blog_api_url": "https://themoonagency.ro/api/blog", "blog_api_token": "token-de-test"})
+PANOU["clienti"][0]["canale"] = ["wp"]
+PANOU["clienti"][0]["flux"] = "autoritate"
+PANOU["clienti"][0].pop("produs", None)
+PANOU["drafts"].clear(); BLOG_API.clear(); APELURI.clear()
+try:
+    generate_draft.main()
+except SystemExit:
+    pass
+dA = list(PANOU["drafts"].values())[0]
+_h = dA.get("article_html") or ""
+cer("Scris de" in _h and "Felix &lt;Dumitru&gt;" in _h and "fondator" in _h and "<Dumitru>" not in _h,
+    "ciorna are semnatura vizibila a autorului, cu numele scapat", _h[:300])
+cer("Scris de" in _h and "</h1>" in _h and _h.index("Scris de") > _h.index("</h1>"),
+    "semnatura sta sub titlul articolului", _h[:200])
+cer('href="https://themoonagency.ro/despre"' in _h, "numele duce la pagina autorului")
+# autorul schimbat intre generare si publicare: pleaca semnatura de acum, nu cea veche
+PANOU["clienti"][0]["config"]["autor_rol"] = "director de marketing"
+dA["stare"] = "aprobat"; dA["canale"] = "wp"
+check_approvals.main()
+cer(len(BLOG_API) == 1 and BLOG_API[0]["content"].count("moon-autor") == 1,
+    "articolul trimis pe API are semnatura, o singura data", [b.get("content", "")[:200] for b in BLOG_API])
+cer(BLOG_API and "director de marketing" in BLOG_API[0]["content"] and "fondator" not in BLOG_API[0]["content"],
+    "la publicare semnatura se reface din setarile de acum", BLOG_API[0]["content"][:300] if BLOG_API else "")
+_aut = (BLOG_API[0].get("author") or {}) if BLOG_API else {}
+cer(_aut.get("name") == "Felix <Dumitru>" and _aut.get("role") == "director de marketing"
+    and _aut.get("url") == "https://themoonagency.ro/despre",
+    "POST-ul catre blog duce si campurile autorului", _aut)
+_org = (BLOG_API[0].get("organization") or {}) if BLOG_API else {}
+cer(_org.get("vat_id") == "RO123" and _org.get("city") == "Bucuresti" and _org.get("name") == "THE MOON Agency",
+    "si firma (CUI, oras), pentru datele structurate de pe site", _org)
+
+# pe WordPress, aceeasi semnatura in continut
+PANOU["clienti"][0]["config"].update({"blog_tip": "wp", "wp_url": "https://themoonagency.ro",
+    "wp_user": "MOON", "wp_app_password": "app-pass"})
+dA["stare"] = "aprobat"; dA["rezultat"] = {}; WP_POSTARI.clear()
+check_approvals.main()
+cer(WP_POSTARI and WP_POSTARI[0].get("content", "").count("moon-autor") == 1
+    and "Felix &lt;Dumitru&gt;" in WP_POSTARI[0].get("content", ""),
+    "pe WordPress articolul pleaca tot cu semnatura", [w.get("content", "")[:200] for w in WP_POSTARI])
+
+# fara autor real semneaza firma — nu inventam un nume
+config.aplica(dict(PANOU["clienti"][0], config=dict(PANOU["clienti"][0]["config"], autor_nume="")))
+_s = seo.cu_semnatura("<h1>T</h1><p>x</p>")
+cer("Scris de" in _s and "THE MOON Agency" in _s and "Felix" not in _s,
+    "fara autor, semnatura e a firmei", _s)
+cer(seo.cu_semnatura(seo.cu_semnatura(_s)).count("moon-autor") == 1,
+    "semnatura nu se dubleaza cand trece de mai multe ori")
+cer(seo.cu_semnatura("<p>fara titlu</p>").startswith('<p class="moon-autor"'),
+    "fara H1, semnatura sta la inceput")
+# revizie 11 sept: author.url pleaca doar ca http(s) — un „javascript:" ar fi XSS pe blogul care il randeaza ca link
+config.aplica(dict(PANOU["clienti"][0], config=dict(PANOU["clienti"][0]["config"], autor_nume="Ana",
+                                                     autor_url="javascript:alert(1)")))
+cer("url" not in seo.autor_pentru_blog()["author"], "author.url cu javascript: nu pleaca spre blog",
+    seo.autor_pentru_blog()["author"])
+PANOU["clienti"][0]["config"].update({"autor_nume": "", "autor_rol": "", "autor_url": "", "blog_tip": "api"})
+config.aplica(PANOU["clienti"][0])
 
 # --- promptul de imagine: scris separat, cu articolul in fata ---
 import imagine_prompt
@@ -1296,6 +1453,135 @@ except requests.ConnectionError:
 requests.post = _vechi_post
 cer(a_ridicat and _cazuri["n"] == retea.INCERCARI,
     "dar nu incercam la nesfarsit dupa un furnizor chiar cazut", _cazuri["n"])
+
+# --- mp12: textul il scrie workerul, motorul Python face DOAR imaginile ciornei (DRAFT_ID) ---
+import generate_draft as _gd
+cer(hasattr(_gd, "doar_imagini"), "exista modul „doar imaginile unei ciorne” (DRAFT_ID)")
+if hasattr(_gd, "doar_imagini"):
+    image_gen._LOGO_CACHE.clear()
+    PANOU["clienti"][0]["flux"] = "autoritate"
+    PANOU["clienti"][0].pop("produs", None)
+    PANOU["clienti"][0]["config"].update({"model_text": "gemini-3.6-flash", "model_imagine": "gpt-image-2",
+        "ig_separata": False, "logo_url": ""})
+    _cl_js = dict(PANOU["clienti"][0], canale=["wp", "fb"], slot=1, imagini_recente=[], feluri_recente=[])
+    PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear(); CERERI_IMAGINE_PROMPT.clear(); CERERI_TEXT.clear()
+    PANOU["drafts"]["js0001"] = {"id": "js0001", "stare": "ciorna", "seo_title": "Scris in worker", "canale": "wp,fb"}
+    PANOU["imagine"] = {"ok": True, "client": _cl_js, "ciorna": {
+        "id": "js0001", "client_id": 1, "seo_title": "Scris in worker", "topic_title": "Worker",
+        "article_html": "<h1>Scris in worker</h1><p>text</p>", "raspuns_scurt": "r", "angle": "a",
+        "facebook_text": "fb", "instagram_text": "ig", "image_prompt": IMAGINE_RASPUNS[0], "imagine_fel": "foto",
+        "prompt_scris": True, "produs_ext_id": None, "canale": ["wp", "fb"], "slot": 1}}
+    os.environ["DRAFT_ID"] = "js0001"
+    try:
+        generate_draft.main()
+    except SystemExit:
+        pass
+    os.environ.pop("DRAFT_ID", None)
+    _dj = PANOU["drafts"].get("js0001") or {}
+    cer(len(PANOU["drafts"]) == 1, "nu se creeaza alta ciorna: imaginile merg pe cea scrisa de worker", list(PANOU["drafts"]))
+    cer(not any("/api/cron/clients" in u for _, u in APELURI), "nu se mai cere lista de clienti (si nici lesa de generare)")
+    cer(not any(("generativelanguage" in u and "interactions" not in u) or "v1/responses" in u for _, u in APELURI),
+        "nu se mai scrie niciun text: nici articol, nici prompt (promptul l-a scris workerul)", [u for _, u in APELURI])
+    cer(PANOU["imagini"].get("js0001") and _dj.get("are_imagine") is True, "poza se face si se urca pe ciorna data", _dj)
+    cer(_dj.get("imagine_gata") is True and _dj.get("consum_adauga") is True and _dj.get("imagini") == 1
+        and _dj.get("model_imagine") == "gpt-image-2",
+        "panoul afla ca imaginile sunt gata si ADUNA costul lor peste cel al textului", _dj)
+
+    # catalog, poza reala blocata, promptul NEscris de worker: il scrie motorul de imagini, fara produsul desenat
+    image_gen.POZA_PAUZA = 0
+    PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear(); CERERI_IMAGINE_PROMPT.clear()
+    PANOU["drafts"]["js0002"] = {"id": "js0002", "stare": "ciorna"}
+    _cl_cat = dict(_cl_js, flux="catalog", produs=dict(PRODUS, mod_imagine="wow", imagine="https://cdn.exemplu/poza-blocata.jpg"))
+    PANOU["imagine"] = {"ok": True, "client": _cl_cat, "ciorna": dict(PANOU["imagine"]["ciorna"], id="js0002",
+        prompt_scris=False, image_prompt="soft window light around the bottle", produs_ext_id="SKU-77")}
+    _prompturi = []
+    _gen_v = generate_draft.generate_image
+    generate_draft.generate_image = lambda pr, *a, **k: (_prompturi.append(pr), _gen_v(pr, *a, **k))[1]
+    os.environ["DRAFT_ID"] = "js0002"
+    try:
+        generate_draft.main()
+    except SystemExit:
+        pass
+    os.environ.pop("DRAFT_ID", None)
+    generate_draft.generate_image = _gen_v
+    _dk = PANOU["drafts"].get("js0002") or {}
+    cer(bool(CERERI_IMAGINE_PROMPT), "poza reala n-a venit si workerul nu scrisese promptul: il scrie motorul de imagini")
+    cer(_prompturi and all("Do not show the product" in x for x in _prompturi), "scena fara produs, ca la generarea completa", _prompturi)
+    cer(any("poza produsului" in str(x) for x in (_dk.get("seo_probleme_adauga") or [])),
+        "ciorna afla ca poza reala a produsului lipseste", _dk.get("seo_probleme_adauga"))
+    cer((_dk.get("image_prompt") or "") and "order slips" in _dk.get("image_prompt"), "promptul nou ajunge pe ciorna", _dk.get("image_prompt"))
+
+    # ciorna nu mai asteapta (sau alta rulare a luat-o): nu se face nimic, nu crapa
+    PANOU["imagine"] = {"ok": True, "ciorna": None, "motiv": "imaginile se fac deja"}
+    APELURI.clear()
+    os.environ["DRAFT_ID"] = "js0003"
+    _iesire = 0
+    try:
+        generate_draft.main()
+    except SystemExit as e:
+        _iesire = e.code or 0
+    os.environ.pop("DRAFT_ID", None)
+    cer(_iesire == 0 and not any("openai.com" in u or "generativelanguage" in u for _, u in APELURI),
+        "fara ciorna de luat, rularea se incheie curat, fara bani cheltuiti", [u for _, u in APELURI])
+    PANOU.pop("imagine", None)
+
+    # revizie 11 sept: ciorna stearsa din panou inainte de rulare -> 404 = nimic de facut, rularea iese verde
+    PANOU["imagine_404"] = True
+    APELURI.clear()
+    os.environ["DRAFT_ID"] = "js0404"
+    _iesire = 0
+    try:
+        generate_draft.main()
+    except SystemExit as e:
+        _iesire = e.code or 0
+    os.environ.pop("DRAFT_ID", None)
+    PANOU.pop("imagine_404", None)
+    cer(_iesire == 0 and not any("openai.com" in u or "generativelanguage" in u for _, u in APELURI),
+        "ciorna stearsa inainte de rulare: iesire curata (nu o rulare rosie), fara bani cheltuiti", _iesire)
+
+    # ciorna stearsa CAT se faceau pozele: nu se mai anunta pe Telegram o ciorna care nu exista
+    image_gen._LOGO_CACHE.clear()
+    PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear()
+    PANOU["imagine"] = {"ok": True, "client": _cl_js, "ciorna": dict(PANOU.get("_ciorna_js") or {
+        "id": "js0005", "client_id": 1, "seo_title": "Stearsa", "topic_title": "W", "article_html": "<h1>S</h1><p>t</p>",
+        "raspuns_scurt": "r", "angle": "a", "facebook_text": "fb", "instagram_text": "ig", "image_prompt": IMAGINE_RASPUNS[0],
+        "imagine_fel": "foto", "prompt_scris": True, "produs_ext_id": None, "canale": ["wp", "fb"], "slot": 1}, id="js0005")}
+    PANOU["image_404"] = True
+    _anunturi = []
+    _tg_v = _gd.tg.anunta_ciorna
+    _gd.tg.anunta_ciorna = lambda *a, **k: _anunturi.append(a)
+    os.environ["DRAFT_ID"] = "js0005"
+    _iesire = 0
+    try:
+        generate_draft.main()
+    except SystemExit as e:
+        _iesire = e.code or 0
+    os.environ.pop("DRAFT_ID", None)
+    _gd.tg.anunta_ciorna = _tg_v
+    PANOU.pop("image_404", None)
+    cer(_iesire == 0 and not _anunturi and not PANOU["drafts"].get("js0005"),
+        "ciorna stearsa cat se faceau pozele: niciun anunt, nicio scriere pe o ciorna inexistenta",
+        [_iesire, _anunturi, PANOU["drafts"].get("js0005")])
+
+    # configul clientului crapa: ciorna tot e eliberata („in lucru" nu ramane agatat)
+    PANOU["drafts"].clear(); APELURI.clear()
+    PANOU["imagine"] = dict(PANOU["imagine"], ciorna=dict(PANOU["imagine"]["ciorna"], id="js0006"))
+    _aplica_v = config.aplica
+    def _aplica_cade(_c):
+        raise ValueError("config stricat")
+    config.aplica = _aplica_cade
+    os.environ["DRAFT_ID"] = "js0006"
+    _iesire = 0
+    try:
+        generate_draft.main()
+    except SystemExit as e:
+        _iesire = e.code or 0
+    os.environ.pop("DRAFT_ID", None)
+    config.aplica = _aplica_v
+    cer((PANOU["drafts"].get("js0006") or {}).get("imagine_gata") is True,
+        "daca pica si configul, panoul afla (imagine_gata) si ciorna nu ramane blocata", PANOU["drafts"].get("js0006"))
+    PANOU.pop("imagine", None)
+    config.aplica(PANOU["clienti"][0])
 
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)

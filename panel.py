@@ -96,6 +96,12 @@ def urca_imagine(draft_id: str, jpeg: bytes, fel: str = "") -> str:
     return date["url"]
 
 
+def imagine_de_facut(draft_id: str) -> dict:
+    """mp12: ciorna scrisa in worker si clientul ei, pentru motorul care face doar imaginile.
+    Intoarce {"ciorna": None, "motiv": …} daca nu mai e nimic de facut (lesa img- luata)."""
+    return _cere("GET", f"/imagine/{draft_id}")
+
+
 # ---------- anti-repetiție ----------
 
 def subiecte_recente(client_id: int, zile: int = 45) -> list[str]:

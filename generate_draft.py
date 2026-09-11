@@ -21,6 +21,7 @@ from config import config
 import imagine_prompt
 import imagine_ig as imagine_ig_mod
 import seo
+import cta
 from content_gen import CONSUM, curata_linkurile, generate_authority_draft
 from content_gen_catalog import genereaza_pentru_produs
 from image_gen import afis_instagram, compune_coperta, compune_din_produs, generate_image, image_from_url
@@ -47,88 +48,12 @@ def genereaza_imagine(prompt: str, cu_logo: bool = True) -> tuple[bytes | None, 
     return None, ultima
 
 
-def _pune_cta(html: str) -> str:
-    """Indemnul la actiune, asa cum l-a ales clientul in panou: text simplu,
-    link in text, sau buton. Modelul scrie doar fraza; forma o dam noi, ca sa
-    arate la fel de fiecare data si sa duca unde trebuie."""
-    text = (config.CLIENT_CTA or "").strip()
-    link = (config.CLIENT_CTA_LINK or "").strip()
-    tip = config.CLIENT_CTA_TIP or "text"
-    if not text or not link or tip == "text":
-        return html
-
-    sigur = html_lib.escape(text, quote=True)
-    adresa = html_lib.escape(link, quote=True)
-    if tip == "buton":
-        bucata = (
-            f'<p style="margin:28px 0"><a href="{adresa}" '
-            'style="display:inline-block;background:#ff2f4d;color:#fff;text-decoration:none;'
-            'padding:14px 26px;border-radius:999px;font-weight:700">'
-            f'{sigur}</a></p>'
-        )
-    else:
-        bucata = f'<p><a href="{adresa}">{sigur}</a></p>'
-
-    # Daca modelul a pus deja fraza si a si legat-o, o lasam in pace. Daca a
-    # pus-o ca text simplu, punem indemnul la final oricum — inainte incercam
-    # sa inlocuim paragraful cu un regex care nu putea trece peste marcaj
-    # imbricat (<strong>, <em>), si iesea un indemn care nu ducea nicaieri.
-    simplu = f"<p>{sigur}</p>"
-    if simplu in html:
-        return html.replace(simplu, bucata, 1)
-    if _deja_legat(html, link):
-        return html
-    return html + bucata
-
-
-def _deja_legat(html: str, link: str) -> bool:
-    """Exista deja un link catre adresa indemnului?"""
-    tipar = r'<a\b[^>]*href=["\']' + re.escape(link.rstrip("/")) + r'/?["\']'
-    return bool(re.search(tipar, html or "", re.I))
-
-
-def pentru_client(client: dict) -> None:
-    config.aplica(client)
-    nume = config.CLIENT_NAME
-    print(f"\n=== {nume} (id {config.CLIENT_ID}) ===")
-
-    lipsa = config.lipsuri_generare()
-    if lipsa:
-        print(f"  sărit: lipsește {', '.join(lipsa)}")
-        return
-    print(f"  slot {config.SLOT}, canale: {', '.join(config.CANALE)}")
-
-    # panoul alege produsul pentru clienții pe flux „catalog"; motorul doar scrie
-    produs = client.get("produs")
-    if config.FLUX == "catalog" and not produs:
-        print("  sărit: catalog gol sau toate produsele au fost postate recent")
-        return
-
-    try:
-        continut = genereaza_pentru_produs(produs) if produs else generate_authority_draft()
-    except Exception as e:  # noqa: BLE001
-        traceback.print_exc()
-        tg.anunta(f"⚠️ *MOON Post* — generarea de text a eșuat pentru {nume}:\n`{str(e)[:300]}`")
-        print(f"  EȘEC la generare: {e}")
-        return
-
-    # Intai scoatem linkurile inventate de model, apoi punem indemnul — altfel
-    # am verifica si linkul ales de om, care e bun prin definitie.
-    ale_noastre = {str(p.get("url") or "").rstrip("/") for p in (config.SITE or []) if p.get("url")}
-    continut["article_html"], linkuri_scoase = curata_linkurile(continut.get("article_html") or "", ale_noastre)
-    if linkuri_scoase:
-        print(f"  {linkuri_scoase} link(uri) inventate scoase din articol")
-    # HTML-ul vine de la un model care a citit paginile clientului: il tratam ca
-    # text din afara si scoatem script/style/on… inainte sa ajunga pe site
-    continut["article_html"] = seo.curata_html(continut["article_html"])
-    continut["article_html"] = _pune_cta(continut["article_html"])
-
-    # verificarile de SEO/GEO nu opresc nimic — se scriu pe ciorna, ca omul sa
-    # vada la ce sa se uite inainte de aprobare
-    probleme_seo = seo.controale(continut)
-    if probleme_seo:
-        print("  de verificat: " + "; ".join(probleme_seo))
-
+def _imagini(continut: dict, produs: dict | None, probleme_seo: list,
+             prompt_deja_scris: bool = False) -> dict:
+    """Poza principala si afisul de Instagram pentru un continut deja scris. O folosesc si
+    generarea completa, si modul DRAFT_ID (mp12: textul l-a scris motorul din worker).
+    `config.FEL_AZI` trebuie ales inainte. Scrie in `continut["image_prompt"]` si adauga in
+    `probleme_seo` ce afla pe drum (poza produsului lipsa, prompt generic)."""
     # Poza REALA a produsului se aduce inainte de orice: de ea depinde daca punem
     # produsul in scena, il lasam ca atare sau — daca nu vine — facem o scena FARA el.
     # Produsul nu se deseneaza niciodata dupa nume: pe 11 sept poza lui La Favorite
@@ -136,7 +61,6 @@ def pentru_client(client: dict) -> None:
     # Gaultier La Favorite", iar modelul si-a imaginat alt flacon.
     # Felul pozei principale (foto, ilustratie, coperta…) se alege O DATA pe ciorna: pe
     # „rulaj" e aleator, iar promptul si compunerea trebuie sa vada acelasi fel.
-    config.FEL_AZI = imagine_prompt.alege_fel()
     if config.FEL_AZI != "foto" or (config.IMAGINE_STIL or "").strip().lower() == "rulaj":
         print(f"  felul pozei: {config.FEL_AZI}" + (" (rulaj)" if config.IMAGINE_STIL == "rulaj" else ""))
 
@@ -165,7 +89,7 @@ def pentru_client(client: dict) -> None:
     # promptul descrie ce e IN JURUL produsului, iar produsul ramane neatins.
     # Un prompt scris pentru o scena cu totul noua ar strica exact compunerea.
     pune_in_scena = poza_reala is not None and mod == "wow"
-    if not pune_in_scena:
+    if not pune_in_scena and not prompt_deja_scris:
         from content_gen import cheama_modelul
         prompt_nou = imagine_prompt.scrie(continut, cheama_modelul)
         if prompt_nou:
@@ -229,6 +153,62 @@ def pentru_client(client: dict) -> None:
             print(f"  afișul de Instagram nu a ieșit ({str(e)[:120]}) — rămâne poza de blog")
             imagine_ig = None
 
+    return {"imagine": imagine, "poza_costa": poza_costa, "eroare_img": eroare_img,
+            "imagine_ig": imagine_ig, "prompt_ig": prompt_ig}
+
+
+def pentru_client(client: dict) -> None:
+    config.aplica(client)
+    nume = config.CLIENT_NAME
+    print(f"\n=== {nume} (id {config.CLIENT_ID}) ===")
+
+    lipsa = config.lipsuri_generare()
+    if lipsa:
+        print(f"  sărit: lipsește {', '.join(lipsa)}")
+        return
+    print(f"  slot {config.SLOT}, canale: {', '.join(config.CANALE)}")
+
+    # panoul alege produsul pentru clienții pe flux „catalog"; motorul doar scrie
+    produs = client.get("produs")
+    if config.FLUX == "catalog" and not produs:
+        print("  sărit: catalog gol sau toate produsele au fost postate recent")
+        return
+
+    try:
+        continut = genereaza_pentru_produs(produs) if produs else generate_authority_draft()
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        tg.anunta(f"⚠️ *MOON Post* — generarea de text a eșuat pentru {nume}:\n`{str(e)[:300]}`")
+        print(f"  EȘEC la generare: {e}")
+        return
+
+    # Intai scoatem linkurile inventate de model, apoi punem indemnul — altfel
+    # am verifica si linkul ales de om, care e bun prin definitie.
+    ale_noastre = {str(p.get("url") or "").rstrip("/") for p in (config.SITE or []) if p.get("url")}
+    continut["article_html"], linkuri_scoase = curata_linkurile(continut.get("article_html") or "", ale_noastre)
+    if linkuri_scoase:
+        print(f"  {linkuri_scoase} link(uri) inventate scoase din articol")
+    # HTML-ul vine de la un model care a citit paginile clientului: il tratam ca
+    # text din afara si scoatem script/style/on… inainte sa ajunga pe site
+    continut["article_html"] = seo.curata_html(continut["article_html"])
+    # indemnul: stilul, culoarea, textele si pozitia vin din panou (cta.py)
+    continut["article_html"] = cta.pune(continut["article_html"])
+
+    # verificarile de SEO/GEO nu opresc nimic — se scriu pe ciorna, ca omul sa
+    # vada la ce sa se uite inainte de aprobare
+    probleme_seo = seo.controale(continut)
+    if probleme_seo:
+        print("  de verificat: " + "; ".join(probleme_seo))
+    # semnatura vizibila a autorului, sub titlu — dupa controale, ca linkul spre pagina
+    # autorului sa nu treaca drept link intern pus de model
+    continut["article_html"] = seo.cu_semnatura(continut["article_html"])
+
+    # Poza REALA a produsului, felul pozei, promptul separat, poza si afisul: vezi _imagini()
+    config.FEL_AZI = imagine_prompt.alege_fel()
+    rez = _imagini(continut, produs, probleme_seo)
+    imagine, poza_costa, eroare_img = rez["imagine"], rez["poza_costa"], rez["eroare_img"]
+    imagine_ig, prompt_ig = rez["imagine_ig"], rez["prompt_ig"]
+
     draft_id = panel.creeaza_ciorna(config.CLIENT_ID, {
         "topic_title": continut["topic_title"],
         "angle": continut["angle"],
@@ -289,7 +269,101 @@ def pentru_client(client: dict) -> None:
     print(f"  ciorna {draft_id}: {continut['topic_title']}" + ("  [FĂRĂ IMAGINE]" if not imagine else ""))
 
 
+def _ciorna_disparuta(e: Exception) -> bool:
+    """Panoul a raspuns 404: ciorna nu mai exista (stearsa din panou). Nu e o eroare de reincercat."""
+    return isinstance(e, panel.PanouIndisponibil) and str(e).startswith("404 ")
+
+
+def doar_imagini(draft_id: str) -> None:
+    """mp12: textul ciornei l-a scris motorul din worker (MOTOR_TEXT = "js"). Aici se fac DOAR
+    pozele ei, apoi panoul afla ca e gata (`imagine_gata`) si aduna costul lor peste cel al
+    textului (`consum_adauga`). Lesa img-<ciorna> din panou opreste o a doua rulare."""
+    try:
+        date = panel.imagine_de_facut(draft_id)
+    except panel.PanouIndisponibil as e:
+        if not _ciorna_disparuta(e):
+            raise
+        print(f"Nimic de facut pe {draft_id}: ciorna a fost stearsa intre timp")
+        return
+    ciorna = date.get("ciorna")
+    if not ciorna:
+        print(f"Nimic de facut pe {draft_id}: {date.get('motiv') or 'ciorna nu asteapta imagini'}")
+        return
+    client = date.get("client") or {}
+    CONSUM["tokens_in"] = CONSUM["tokens_out"] = 0
+    try:
+        # in try: un config care crapa tot trebuie sa elibereze ciorna („in lucru") din panou
+        config.aplica(client)
+        print(f"\n=== {config.CLIENT_NAME} (id {config.CLIENT_ID}) — doar imaginile ciornei {draft_id} ===")
+        lipsa = config.lipsuri_generare()
+        if lipsa:
+            panel.actualizeaza(draft_id, imagine_gata=True,
+                               eroare="Imaginile nu s-au facut: lipsește " + ", ".join(lipsa))
+            return
+        continut = dict(ciorna)
+        produs = client.get("produs")
+        config.FEL_AZI = (ciorna.get("imagine_fel") or "").strip() or imagine_prompt.alege_fel()
+        probleme: list = []
+        rez = _imagini(continut, produs, probleme, prompt_deja_scris=bool(ciorna.get("prompt_scris")))
+        imagine, imagine_ig, eroare_img = rez["imagine"], rez["imagine_ig"], rez["eroare_img"]
+
+        if imagine:
+            try:
+                panel.urca_imagine(draft_id, imagine)
+            except Exception as e:  # noqa: BLE001
+                if _ciorna_disparuta(e):
+                    print(f"  ciorna {draft_id} a fost stearsa cat se faceau pozele — nu mai anunt nimic")
+                    return
+                print(f"  imaginea nu a putut fi urcată în panou: {e}")
+                imagine, eroare_img = None, str(e)[:300]
+        if imagine_ig:
+            try:
+                panel.urca_imagine(draft_id, imagine_ig, fel="ig")
+            except Exception as e:  # noqa: BLE001 — Instagram cade înapoi pe poza de blog
+                if _ciorna_disparuta(e):
+                    print(f"  ciorna {draft_id} a fost stearsa cat se faceau pozele — nu mai anunt nimic")
+                    return
+                print(f"  afișul de Instagram nu a putut fi urcat: {str(e)[:150]}")
+                imagine_ig = None
+
+        avertisment = ""
+        if not imagine and ("ig" in config.CANALE or "fb" in config.CANALE):
+            avertisment = ("Ciorna nu are imagine — Instagram se sare, iar pe Facebook se postează "
+                           "link către articol. Motiv: " + (eroare_img or "necunoscut"))
+        campuri = {
+            "imagine_gata": True, "consum_adauga": True, "are_imagine": bool(imagine),
+            "image_prompt": continut.get("image_prompt") or "",
+            "image_prompt_ig": rez["prompt_ig"] if imagine_ig else "",
+            "seo_probleme_adauga": probleme,
+            "model_imagine": config.MODEL_IMAGINE, "calitate_imagine": config.OPENAI_IMAGE_QUALITY,
+            "tokens_in": CONSUM["tokens_in"], "tokens_out": CONSUM["tokens_out"],
+            "imagini": (1 if (imagine and rez["poza_costa"]) else 0) + (1 if imagine_ig else 0),
+        }
+        if avertisment:
+            campuri["eroare"] = avertisment
+        panel.actualizeaza(draft_id, **campuri)
+    except Exception as e:  # noqa: BLE001 — ciorna nu ramane blocata „in lucru"
+        traceback.print_exc()
+        try:
+            panel.actualizeaza(draft_id, imagine_gata=True, eroare=f"Imaginile au picat: {str(e)[:300]}")
+        finally:
+            raise
+    tg.anunta_ciorna(draft_id, continut.get("seo_title") or "", continut.get("facebook_text") or "",
+                     continut.get("instagram_text") or "", imagine, avertisment)
+    print(f"  ciorna {draft_id}: imaginile gata" + ("" if imagine else "  [FĂRĂ IMAGINE]"))
+
+
 def main() -> None:
+    # mp12: pornit din coada Cloudflare doar pentru pozele unei ciorne scrise in worker
+    ciorna = os.environ.get("DRAFT_ID", "").strip()
+    if ciorna:
+        try:
+            doar_imagini(ciorna)
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            print(f"  EȘEC la imaginile ciornei {ciorna}: {e}")
+            sys.exit(1)
+        return
     unul = os.environ.get("CLIENT_ID", "").strip()
     forteaza = os.environ.get("FORTEAZA", "").strip().lower() in ("1", "da", "true", "yes")
     # DOAR_COADA=1: rulat din fluxul de publicare (la 5 minute), ia numai clientii
