@@ -105,6 +105,7 @@ class Config:
     IG_TEXT_CAT = "mediu"          # putin | mediu | mult
     IG_FUNDAL = "inchis"           # inchis | deschis | brand | poza | gradient
     IG_ACCENT = ""
+    CATALOG_ARTICOL = "magazin"
     IG_FONT = "gros"               # gros | elegant | simplu
     IG_BANDA = False
     IG_LOGO = False                # logoul clientului pus de cod in subsolul afisului
@@ -221,6 +222,7 @@ class Config:
         self.IG_TEXT_CAT = c.get("ig_text_cat") or Config.IG_TEXT_CAT
         self.IG_FUNDAL = c.get("ig_fundal") or Config.IG_FUNDAL
         self.IG_ACCENT = (c.get("ig_accent") or "").strip()
+        self.CATALOG_ARTICOL = (c.get("catalog_articol") or "magazin").strip().lower()
         self.IG_FONT = c.get("ig_font") or Config.IG_FONT
         self.IG_BANDA = _bifa(c.get("ig_banda"))
         self.IG_LOGO = _bifa(c.get("ig_logo"))

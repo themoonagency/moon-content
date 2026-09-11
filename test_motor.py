@@ -1645,5 +1645,34 @@ if hasattr(_gd, "doar_imagini"):
     PANOU.pop("imagine", None)
     config.aplica(PANOU["clienti"][0])
 
+# --- catalog: articolul ales de client (11 sept: „scurt si fara surse" la evero, dinadins) ---
+import content_gen_catalog as _cgc
+_cl_art = {"id": 1, "nume": "M", "domeniu": "m.ro", "flux": "catalog", "config": {}}
+config.aplica(_cl_art)
+_pm = _cgc._prompt({"nume": "P", "url": "https://m.ro/p", "conexe": []})
+_scurt = {"seo_title": "T", "meta_description": "m", "article_html": "<h1>T</h1><h2>a</h2><p>" + "cuvant " * 330 +
+          " 169 lei</p><h2>b</h2><p><a href='https://m.ro/p/x'>x</a> <a href='https://m.ro/p/y'>y</a></p>"}
+_ctl_m = seo.controale(_scurt)
+config.aplica(dict(_cl_art, config={"catalog_articol": "complet"}))
+_pc = _cgc._prompt({"nume": "P", "url": "https://m.ro/p", "conexe": []})
+_ctl_c = seo.controale(_scurt)
+cer("300-450" in _pm and "700-1000" in _pc and "VERIFICABILE" in _pc and "VERIFICABILE" not in _pm,
+    "catalog: implicit articolul scurt din magazin, la alegere cel complet cu surse")
+cer(not any("prea scurt" in x or "sursa din afara" in x for x in _ctl_m)
+    and any("prea scurt" in x for x in _ctl_c) and any("sursa din afara" in x for x in _ctl_c),
+    "verificarea nu mai marcheaza articolul scurt de catalog ca prea scurt / fara surse", [_ctl_m, _ctl_c])
+_payloads = []
+_cheama_v = _cgc.cheama_modelul
+_cgc.cheama_modelul = lambda pl, *a, **k: (_payloads.append(pl), {"candidates": [{"content": {"parts": [{"text":
+    json.dumps({"seo_title": "t", "article_html": "<h1>t</h1>", "facebook_text": "f", "instagram_text": "i"})}]}}]})[1]
+_cgc.genereaza_pentru_produs({"nume": "P", "url": "https://m.ro/p", "conexe": []})
+config.aplica(_cl_art)
+_cgc.genereaza_pentru_produs({"nume": "P", "url": "https://m.ro/p", "conexe": []})
+_cgc.cheama_modelul = _cheama_v
+cer(_payloads[0].get("tools") and _payloads[0]["generationConfig"]["maxOutputTokens"] == 8192
+    and not _payloads[1].get("tools") and _payloads[1]["generationConfig"]["maxOutputTokens"] == 4096,
+    "doar articolul complet cauta pe net", [(bool(x.get("tools")), x["generationConfig"]["maxOutputTokens"]) for x in _payloads])
+config.aplica(PANOU["clienti"][0])
+
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)

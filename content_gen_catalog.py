@@ -47,7 +47,28 @@ def _conexe(p: dict) -> str:
     return "\n".join(randuri)
 
 
+# Felul articolului de catalog, ales de client in panou (`catalog_articol`). Implicit „magazin":
+# scurt, doar din datele magazinului. „complet": mai lung, cu informatii cautate pe net si surse.
+REGULI_MAGAZIN = """- NU inventa caracteristici, dimensiuni, materiale, garanții sau comparații cu alte produse.
+  Dacă descrierea din magazin nu spune ceva, nu spui nici tu."""
+REGULI_COMPLET = """- Prețul, reducerile și linkurile magazinului vin DOAR din datele de mai sus: nu le cauți pe net și nu le schimbi.
+- Poți căuta pe net informații VERIFICABILE despre produs și marcă (ce conține, cum se folosește, pentru ce e gândit).
+  Ce nu găsești confirmat într-o sursă serioasă sau în descrierea din magazin, nu scrii.
+  Nu inventa recenzii și nu compara cu alte produse."""
+ARTICOL_MAGAZIN = """1. Un ARTICOL SCURT de blog (300-450 cuvinte): la ce folosește produsul, cui i se
+   potrivește, ce e de știut înainte de cumpărare. Un singur H1 (titlul), apoi H2."""
+ARTICOL_COMPLET = """1. Un ARTICOL de blog (700-1000 cuvinte): la ce folosește produsul, cui i se
+   potrivește, ce e de știut înainte de cumpărare, cu detaliile verificate în surse. Un singur H1 (titlul), apoi H2.
+   Pune 1-2 linkuri <a href="ADRESA SURSEI">numele sursei</a> spre sursele folosite (site-ul mărcii
+   sau o publicație de specialitate), NU spre alte magazine."""
+
+
+def articol_complet() -> bool:
+    return (config.CATALOG_ARTICOL or "").strip().lower() == "complet"
+
+
 def _prompt(p: dict) -> str:
+    complet = articol_complet()
     return f"""
 Ești redactorul magazinului {config.CLIENT_NAME} ({config.CLIENT_DOMAIN}).
 Ton de voce: {config.CLIENT_TONE}.
@@ -65,8 +86,7 @@ Alte produse din magazin, care pot merge împreună cu el:
 {_conexe(p)}
 
 REGULI STRICTE, mai importante decât stilul:
-- NU inventa caracteristici, dimensiuni, materiale, garanții sau comparații cu alte produse.
-  Dacă descrierea din magazin nu spune ceva, nu spui nici tu.
+{REGULI_COMPLET if complet else REGULI_MAGAZIN}
 - NU inventa reduceri sau termene („doar azi", „ultimele bucăți") dacă nu reies din datele de mai sus.
 - Prețul se scrie EXACT ca mai sus, sau deloc.
 - Linkul se pune ca atare, fără parametri adăugați.
@@ -74,8 +94,7 @@ REGULI STRICTE, mai importante decât stilul:
 
 Produci:
 
-1. Un ARTICOL SCURT de blog (300-450 cuvinte): la ce folosește produsul, cui i se
-   potrivește, ce e de știut înainte de cumpărare. Un singur H1 (titlul), apoi H2.
+{ARTICOL_COMPLET if complet else ARTICOL_MAGAZIN}
    OBLIGATORIU, dacă lista de mai sus nu e goală, o secțiune spre final cu titlul
    „Merge bine cu" și 2-3 dintre acele produse, fiecare pe rândul lui, ca link
    <a href="LINKUL EXACT">Numele produsului</a> urmat de o propoziție scurtă care
@@ -123,8 +142,10 @@ def genereaza_pentru_produs(produs: dict) -> dict:
 
     payload = {
         "contents": [{"role": "user", "parts": [{"text": _prompt(produs)}]}],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096},
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192 if articol_complet() else 4096},
     }
+    if articol_complet():
+        payload["tools"] = [{"google_search": {}}]   # cautarea pe net, doar cand clientul a ales articolul complet
     date = cheama_modelul(payload)
     try:
         text = date["candidates"][0]["content"]["parts"][0]["text"]

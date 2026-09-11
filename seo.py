@@ -231,7 +231,10 @@ def controale(ciorna: dict) -> list[str]:
     text = _text(html)
     n = cuvinte(html)
 
-    if n < 500:
+    # Articolul de catalog „doar din magazin" e scurt DINADINS (300-450 de cuvinte, fara surse):
+    # pragul de 500 si „niciun link extern" il marcau mereu, iar „prea scurt" oprea aprobarea automata.
+    catalog_scurt = config.FLUX == "catalog" and (getattr(config, "CATALOG_ARTICOL", "") or "magazin") != "complet"
+    if n < (250 if catalog_scurt else 500):
         p.append(f"articolul are doar {n} de cuvinte — prea scurt ca sa fie luat drept sursa")
     if len(ciorna.get("seo_title") or "") > 65:
         p.append("titlul trece de 65 de caractere si va fi taiat in Google")
@@ -273,7 +276,7 @@ def controale(ciorna: dict) -> list[str]:
         else:
             p.append(f"doar {len(interne)} link(uri) catre paginile clientului — vrem 3-5")
     externe = len(re.findall(r'href=["\']https?://(?!' + re.escape(gazda) + r')', html, re.I)) if gazda else 0
-    if externe == 0:
+    if externe == 0 and not catalog_scurt:
         p.append("niciun link catre o sursa din afara")
 
     if not re.search(r"\d", text):
