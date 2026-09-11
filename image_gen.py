@@ -208,7 +208,7 @@ def image_from_url(url: str, cu_logo: bool = True, referer: str | None = None) -
             ultima = e
             if incercare == 1 and POZA_PAUZA:
                 time.sleep(POZA_PAUZA)
-    raise RuntimeError(f"poza produsului nu a venit ({str(ultima)[:160]})")
+    raise RuntimeError(f"poza produsului nu a venit ({str(ultima)[:300]})")
 
 
 OPENAI_EDITS_URL = "https://api.openai.com/v1/images/edits"

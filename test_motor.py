@@ -1550,6 +1550,29 @@ if hasattr(_gd, "doar_imagini"):
         "ciorna afla ca poza reala a produsului lipseste", _dk.get("seo_probleme_adauga"))
     cer((_dk.get("image_prompt") or "") and "order slips" in _dk.get("image_prompt"), "promptul nou ajunge pe ciorna", _dk.get("image_prompt"))
 
+    # motivul intreg ajunge pe ciorna: nici adresa pozei nu mai e taiata („…unisex.j"), nici de ce n-a putut panoul
+    PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear(); POZE_CERUTE.clear()
+    PANOU["drafts"]["js0008"] = {"id": "js0008", "stare": "ciorna"}
+    _url_lung = "https://cdn.exemplu/wp-content/uploads/2026/03/poza-blocata-milky-way-maison-asrar-100ml-apa-de-parfum-unisex.jpg"
+    PANOU["imagine"] = {"ok": True, "client": dict(_cl_js, flux="catalog", produs=dict(PRODUS, mod_imagine="catalog", imagine=_url_lung,
+        imagine_panou_eroare="direct 403 text/html; i0.wp.com 403; weserv 404")),
+        "ciorna": dict(PANOU["imagine"]["ciorna"], id="js0008", prompt_scris=False, image_prompt="scena", produs_ext_id="SKU-77")}
+    os.environ["DRAFT_ID"] = "js0008"
+    _ifu_v = generate_draft.image_from_url
+    def _ifu_cade(url, *a, **k):
+        # ca requests: „403 Client Error: Forbidden for url: <adresa intreaga>"
+        raise RuntimeError(f"poza produsului nu a venit (403 Client Error: Forbidden for url: {url})")
+    generate_draft.image_from_url = _ifu_cade
+    try:
+        generate_draft.main()
+    except SystemExit:
+        pass
+    generate_draft.image_from_url = _ifu_v
+    os.environ.pop("DRAFT_ID", None)
+    _avert = " ".join(str(x) for x in ((PANOU["drafts"].get("js0008") or {}).get("seo_probleme_adauga") or []))
+    cer(_url_lung in _avert and "nici panoul n-a putut-o lua: direct 403" in _avert,
+        "avertismentul pozei are adresa intreaga si motivul de la panou", _avert[:400])
+
     # 11 sept, evero.ro: firewallul magazinului refuza GitHub, dar panoul (workerul) a adus poza in R2
     # -> motorul o ia de pe panou si produsul real ajunge pe poza, nu o scena fara produs
     PANOU["drafts"].clear(); PANOU["imagini"].clear(); APELURI.clear(); CERERI_IMAGINE_PROMPT.clear(); POZE_CERUTE.clear()

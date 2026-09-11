@@ -76,8 +76,11 @@ def _imagini(continut: dict, produs: dict | None, probleme_seo: list,
                                                 referer=(produs.get("url") or None) if sursa == produs["imagine"] else None)
                     break
                 except Exception as e:  # noqa: BLE001
-                    motiv_poza = str(e)[:160]
+                    # 300, nu 160: la 160 se taia chiar adresa pozei din mesaj („…unisex.j") si parea gresita
+                    motiv_poza = str(e)[:300]
                     print(f"  poza produsului nu s-a putut lua de la {sursa[:80]} ({motiv_poza})")
+            if poza_reala is None and produs.get("imagine_panou_eroare"):
+                motiv_poza = "nici panoul n-a putut-o lua: " + str(produs["imagine_panou_eroare"])[:200] + "; " + motiv_poza
         else:
             motiv_poza = "produsul n-are poză în catalog"
     fara_produs = bool(produs) and mod in ("wow", "catalog") and poza_reala is None
