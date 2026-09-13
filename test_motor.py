@@ -1348,7 +1348,7 @@ cer("lumina · paleta · starea" not in _cp,
     "paleta nu mai e ceruta in lista de forma a promptului final (acolo ajungea la modelul de imagine)")
 cer("nu ca schema de culori a cadrului" in _cp, "promptul final ia culorile locului, nu paleta clientului")
 config.IMAGINE_PALETA = ""
-cer("din meseria despre care e articolul" in imagine_prompt.cere(CIORNA_IMG),
+cer("de meseria din articol" in imagine_prompt.cere(CIORNA_IMG),
     "scena trebuie sa contina un lucru din meseria articolului, nu doar o metafora")
 cer("balanță" in imagine_prompt._pare_slab(
         "A black balance scale on a dark background, white boxes piled on one pan, a single red weight "
@@ -1356,6 +1356,25 @@ cer("balanță" in imagine_prompt._pare_slab(
     "metafora cu obiect de studio (balanta) e prinsa ca cliseu")
 cer(any(x in " ".join(imagine_prompt.INTERZISE) for x in ("balance scales", "hourglasses")),
     "metaforele cu recuzita de studio sunt pe lista interzisa")
+# 14 sept, promptul REAL de la „Cat costa publicitatea pe ChatGPT Ads in 2026?": fotoeditorul a tradus
+# „pragul minim eliminat" intr-o bariera de otel data la o parte, jetoane albe aliniate si un distantier
+# rosu, pe un banc intr-un „modern studio". Metafora e corecta si poza n-are nicio legatura cu subiectul.
+PROMPT_ABSTRACT = (
+    "A massive black steel barrier plate lies unbolted and set aside on a dark slate bench in a "
+    "modern studio, revealing a narrow precision channel beneath it. A single slender, intense red "
+    "acrylic spacer rests inside the track, perfectly aligning a tight row of tiny matte white metal "
+    "tokens. Shot on 35mm, waist-level, shallow depth of field, focused on the red spacer. Soft "
+    "natural daylight from the side, quiet analytical atmosphere.")
+cer(imagine_prompt._pare_slab(PROMPT_ABSTRACT),
+    "promptul abstract de pe 14 sept e prins si cerut din nou", imagine_prompt._pare_slab(PROMPT_ABSTRACT))
+_ci = imagine_prompt.cere(CIORNA_IMG)
+cer("Obiectele inventate pentru metaforă" in _ci,
+    "obiectele fabricate anume (placi, jetoane, distantiere) nu se pun la socoteala")
+cer("NU un studio" in _ci, "locul e cel din articol, nu un studio")
+cer("trebuie să ghicească din ce\n   domeniu e articolul" in _ci,
+    "proba: cine vede poza fara titlu ghiceste domeniul")
+cer("nu fabricate anume pentru poză" in " ".join(x for _, x in imagine_prompt.CAI),
+    "calea „metafora” cere obiectele adevarate ale meseriei")
 _cu_idei = "IDEI:\n1. un raft\n2. o usa\n3. o scara\nALEASA: 2\nPROMPT: " + IMAGINE_RASPUNS[0]
 cer(imagine_prompt.scrie(CIORNA_IMG, lambda pl: {"candidates": [{"content": {"parts": [{"text": _cu_idei}]}}]})
     == IMAGINE_RASPUNS[0], "din raspuns ramane doar promptul final, fara lista de idei")

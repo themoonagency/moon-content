@@ -35,6 +35,10 @@ INTERZISE = [
     "world maps with glowing connection lines",
     "a notebook or notepad with a handwritten list, a pen and a cup of coffee on a "
     "wooden desk — it has been used four times already, it is the new cliche",
+    "objects invented for the metaphor: plates, slabs, blocks, tokens, cubes, bars, rods, "
+    "spacers, discs — any shape you cannot name and cannot say who uses it at work",
+    "a studio, a clean workbench or a seamless backdrop AS THE PLACE — the scene happens "
+    "where the subject of the article actually happens",
     "balance scales, hourglasses, stopwatches, gears, falling dominoes, icebergs, tangled "
     "threads, compasses, keys and padlocks, darts in a bullseye — the studio-prop metaphor: "
     "a symbolic object on an empty background, standing in for the idea instead of showing it",
@@ -51,9 +55,9 @@ CAI = [
                "face exact lucrul despre care e articolul, în locul în care se face de obicei"),
     ("natura-statica", "o NATURĂ STATICĂ cu obiectele adevărate ale subiectului, aranjate ca "
                        "și cum tocmai a plecat cineva de lângă ele. NU pe un birou și NU cu un carnet."),
-    ("metafora", "o METAFORĂ FIZICĂ făcută din lucruri reale din lumea subiectului, "
-                 "fotografiată ca atare (nu desenată, nu randată): un contrast sau o comparație "
-                 "care se vede dintr-o privire"),
+    ("metafora", "o METAFORĂ FIZICĂ făcută din OBIECTELE ADEVĂRATE ale meseriei din articol, "
+                 "fotografiate ca atare (nu desenate, nu randate, nu fabricate anume pentru poză): "
+                 "un contrast sau o comparație care se vede dintr-o privire"),
     ("detaliu", "un DETALIU foarte apropiat al unui obiect central pentru subiect, cu textură "
                 "vizibilă: materialul, uzura, lumina pe el"),
     ("locul-gol", "LOCUL în care se întâmplă subiectul articolului, fotografiat larg, fără "
@@ -258,11 +262,17 @@ CUM ALEGI
    înțeleagă legătura fără explicații. Nu te lua după un cuvânt din text („e-commerce",
    „livrare") ca să muți scena în altă meserie decât cea despre care e articolul.
 5. {regula_scena}
-6. În cadru trebuie să se vadă cel puțin UN lucru din meseria despre care e articolul: locul
-   unde se lucrează, unealta, ecranul, marfa, hârtia. O metaforă făcută numai din obiecte de
-   studio (forme, cuburi, un simbol pe fundal gol) NU se acceptă — cine vede poza trebuie să
-   ghicească și domeniul, nu doar ideea.
-7. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
+6. În cadru trebuie să se vadă cel puțin UN obiect pe care orice om l-ar numi pe loc ȘI l-ar lega
+   de meseria din articol: un ecran cu o pagină adevărată, un telefon, un colet, o etichetă de preț,
+   o factură, un raft, o unealtă de-a lor. Obiectele inventate pentru metaforă — plăci, blocuri,
+   jetoane, cuburi, bare, distanțiere, discuri, orice formă căreia nu-i poți spune numele și nu poți
+   spune cine o folosește la muncă — NU se pun la socoteală, oricât de bine ar sta în cadru.
+7. LOCUL e cel în care se întâmplă subiectul articolului: un birou adevărat, un depozit, un magazin,
+   o masă de lucru cu urme de folosință. NU un studio, NU un banc de lucru curat pe fundal gol.
+8. PROBA, înainte să scrii promptul: dacă cineva vede poza fără titlu, trebuie să ghicească din ce
+   domeniu e articolul. Dacă tot ce poate spune e „ceva abstract, probabil business", ai ales greșit —
+   întoarce-te la pasul 1 și ia altă idee.
+9. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
 
 NU FOLOSI NICIODATĂ
 {chr(10).join('- ' + x for x in INTERZISE)}
@@ -304,6 +314,8 @@ def _pare_slab(prompt: str) -> list:
         ("handshake", "strângere de mână"), ("binary code", "cod binar"),
         ("balance scale", "balanță"), ("weighing scale", "balanță"), ("hourglass", "clepsidră"),
         ("stopwatch", "cronometru"), ("domino", "domino"), ("iceberg", "aisberg"),
+        ("modern studio", "studio"), ("seamless backdrop", "fundal de studio"),
+        ("spacer", "piesă fără nume"), ("tokens", "jetoane"), ("slab", "placă"),
         ("digital transformation", "„digital transformation”"),
         ("floating ui", "UI plutitor"), ("data visualization", "grafic"),
         ("charts", "grafice"), ("graphs", "grafice"), ("neon", "neon"),
