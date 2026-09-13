@@ -654,7 +654,7 @@ for _mod in ("catalog", "wow"):
         f"[{_mod}] ciorna spune ca poza reala a produsului lipseste", d9.get("seo_probleme"))
 generate_draft.generate_image = _gen_vechi
 _ant = POZE_ANTETE[-1] if POZE_ANTETE else {}
-cer("Mozilla/5.0" in _ant.get("User-Agent", "") and _ant.get("Referer") == PRODUS["url"]
+cer("Mozilla/5.0" in _ant.get("User-Agent", "") and "MOONPost/1.0" in _ant.get("User-Agent", "") and _ant.get("Referer") == PRODUS["url"]
     and "image/" in _ant.get("Accept", ""),
     "poza produsului se cere ca un browser, de pe pagina produsului", _ant)
 PANOU["clienti"][0]["produs"] = dict(PRODUS)

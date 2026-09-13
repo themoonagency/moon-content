@@ -182,7 +182,7 @@ def _png_to_jpeg(png_bytes: bytes, cu_logo: bool = True, raport: float | None = 
 # produsului — e poza publica a clientului, pe care oricum o publicam pentru el.
 ANTETE_POZA = {
     "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                   "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"),
+                   "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 MOONPost/1.0 (+https://moonpost.ro)"),
     "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
     "Accept-Language": "ro-RO,ro;q=0.9,en;q=0.8",
 }
