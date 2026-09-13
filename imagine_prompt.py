@@ -35,6 +35,9 @@ INTERZISE = [
     "world maps with glowing connection lines",
     "a notebook or notepad with a handwritten list, a pen and a cup of coffee on a "
     "wooden desk — it has been used four times already, it is the new cliche",
+    "balance scales, hourglasses, stopwatches, gears, falling dominoes, icebergs, tangled "
+    "threads, compasses, keys and padlocks, darts in a bullseye — the studio-prop metaphor: "
+    "a symbolic object on an empty background, standing in for the idea instead of showing it",
     "anything that would work equally well for any other article",
 ]
 
@@ -165,8 +168,9 @@ def _stil() -> str:
     paleta = (config.IMAGINE_PALETA or "").strip()
     # Paleta e o DIRECTIE. Pusa ca regula, colora fiecare poza la fel (THE MOON Agency:
     # negru-alb-rosu pe toate, 11 sept) si pozele nu se mai deosebeau una de alta.
-    randuri.append(f"Paleta clientului, ca direcție: {paleta}. Folosește-o la accente, lumină sau "
-                   f"un obiect — nu vopsi tot cadrul în ea; pozele trebuie să arate diferit una de alta."
+    randuri.append(f"Paleta clientului, ca direcție: {paleta}. Cel mult UN accent din ea, pe un "
+                   f"singur obiect; restul cadrului are culorile lui firești. Nu o face schema de "
+                   f"culori a pozei și nu o pune pe fundal — altfel toate pozele ies la fel."
                    if paleta
                    else "Paleta: culori naturale, potrivite locului din imagine. "
                         "NU fundal închis cu accente neon — arată a reclamă de software.")
@@ -254,7 +258,11 @@ CUM ALEGI
    înțeleagă legătura fără explicații. Nu te lua după un cuvânt din text („e-commerce",
    „livrare") ca să muți scena în altă meserie decât cea despre care e articolul.
 5. {regula_scena}
-6. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
+6. În cadru trebuie să se vadă cel puțin UN lucru din meseria despre care e articolul: locul
+   unde se lucrează, unealta, ecranul, marfa, hârtia. O metaforă făcută numai din obiecte de
+   studio (forme, cuburi, un simbol pe fundal gol) NU se acceptă — cine vede poza trebuie să
+   ghicească și domeniul, nu doar ideea.
+7. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
 
 NU FOLOSI NICIODATĂ
 {chr(10).join('- ' + x for x in INTERZISE)}
@@ -266,7 +274,9 @@ REGULI DE FORMĂ
 - Promptul final îl scrii în ENGLEZĂ, 45-75 de cuvinte, într-un singur paragraf.
 - Spui, în ordine: ce se vede (subiect + acțiune) · unde · un detaliu anume ·
   cadrul (și obiectivul, dacă e fotografie: „shot on 35mm, waist-level, shallow depth of field”) ·
-  lumina · paleta · starea.
+  lumina · starea.
+- Culorile din prompt sunt ale locului și ale lucrurilor din el. Paleta clientului intră cel mult
+  ca UN accent pe un singur obiect — nu ca schema de culori a cadrului și nu ca fundal.
 {_regula_text()}
 - Fără fețe de oameni recognoscibile: mâini, siluete, spatele cuiva, da.
 - Fără mărci, fără produse ale concurenței.
@@ -292,6 +302,8 @@ def _pare_slab(prompt: str) -> list:
         ("circuit", "circuite"), ("neural", "rețea neuronală"), ("futuristic", "futurist"),
         ("robot", "robot"), ("lightbulb", "bec"), ("light bulb", "bec"),
         ("handshake", "strângere de mână"), ("binary code", "cod binar"),
+        ("balance scale", "balanță"), ("weighing scale", "balanță"), ("hourglass", "clepsidră"),
+        ("stopwatch", "cronometru"), ("domino", "domino"), ("iceberg", "aisberg"),
         ("digital transformation", "„digital transformation”"),
         ("floating ui", "UI plutitor"), ("data visualization", "grafic"),
         ("charts", "grafice"), ("graphs", "grafice"), ("neon", "neon"),

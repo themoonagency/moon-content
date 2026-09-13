@@ -1337,9 +1337,25 @@ cer("trei idei vizuale" in _c6 and "Program de accelerare e-commerce: cum scalez
     "cererea porneste de la titlu si cere trei idei vizuale diferite")
 cer("NU s-ar potrivi la alt articol" in _c6, "ramane ideea specifica articolului, nu una generala")
 cer("PROMPT:" in _c6, "raspunsul tine ideile separat de promptul final")
+# 13 sept: pozele de blog ieseau toate la fel — obiecte albe pe fundal negru cu un accent rosu,
+# fara nicio legatura cu articolul. Paleta era ceruta de doua ori (ca „directie" in stil, dar si
+# in lista obligatorie din REGULI DE FORMA), iar modelul de imagine primeste DOAR paragraful final,
+# unde ajungea ca schema de culori. Plus: nimic nu obliga scena sa contina ceva din meseria clientului.
 config.IMAGINE_PALETA = "negru, alb si rosu"
-cer("nu vopsi tot cadrul" in imagine_prompt.cere(CIORNA_IMG), "paleta clientului e directie, nu vopseaua intregii poze")
+_cp = imagine_prompt.cere(CIORNA_IMG)
+cer("Cel mult UN accent din ea" in _cp, "paleta clientului e un accent pe un obiect, nu vopseaua pozei")
+cer("lumina · paleta · starea" not in _cp,
+    "paleta nu mai e ceruta in lista de forma a promptului final (acolo ajungea la modelul de imagine)")
+cer("nu ca schema de culori a cadrului" in _cp, "promptul final ia culorile locului, nu paleta clientului")
 config.IMAGINE_PALETA = ""
+cer("din meseria despre care e articolul" in imagine_prompt.cere(CIORNA_IMG),
+    "scena trebuie sa contina un lucru din meseria articolului, nu doar o metafora")
+cer("balanță" in imagine_prompt._pare_slab(
+        "A black balance scale on a dark background, white boxes piled on one pan, a single red weight "
+        "on the other, studio light, shallow depth of field, minimal composition, moody atmosphere"),
+    "metafora cu obiect de studio (balanta) e prinsa ca cliseu")
+cer(any(x in " ".join(imagine_prompt.INTERZISE) for x in ("balance scales", "hourglasses")),
+    "metaforele cu recuzita de studio sunt pe lista interzisa")
 _cu_idei = "IDEI:\n1. un raft\n2. o usa\n3. o scara\nALEASA: 2\nPROMPT: " + IMAGINE_RASPUNS[0]
 cer(imagine_prompt.scrie(CIORNA_IMG, lambda pl: {"candidates": [{"content": {"parts": [{"text": _cu_idei}]}}]})
     == IMAGINE_RASPUNS[0], "din raspuns ramane doar promptul final, fara lista de idei")
