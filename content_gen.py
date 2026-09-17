@@ -248,6 +248,12 @@ decât 1500 diluate. Nu umple.
 - Cifre, procente, citate, studii sau nume de surse pe care nu le-ai văzut în
   rezultatele căutării. Un articol cu o cifră inventată e mai rău decât unul
   fără cifre — și oricum verificăm.
+- Numele unei surse (Forrester, Gartner, Statista, McKinsey, Salesforce ș.a.m.d.)
+  fără linkul exact al studiului, așa cum l-ai văzut în rezultate. Dacă ai cifra dar
+  nu ai adresa exactă a studiului, scrii propoziția fără să numești sursa sau o scoți
+  de tot. Linkul pus lângă numele unei surse trebuie să ducă la ACEL studiu — nu la
+  pagina de start a firmei și nu la alt site care îl citează. Verificăm fiecare
+  atribuire.
 - Adrese web pe care nu le-ai văzut scrise exact așa în rezultate. Verificăm
   fiecare link înainte de publicare și îl scoatem dacă dă 404.
 - Deschideri din lista asta, în nicio variantă: {", ".join(DESCHIDERI_INTERZISE)}.
