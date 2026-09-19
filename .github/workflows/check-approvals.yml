@@ -1,8 +1,8 @@
 name: MOON Post - Publică ce s-a aprobat
 
 on:
-  # mp15: cronul GitHub OPRIT (18 sept 2026) - motorul ruleaza in workerul moon-post.
-  # Fluxul ramane doar ca rezerva, pornit din panou prin workflow_dispatch.
+  schedule:
+    - cron: "*/5 * * * *"   # repo public = minute Actions nelimitate
   workflow_dispatch: {}
 
 concurrency:

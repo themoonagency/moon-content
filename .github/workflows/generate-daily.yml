@@ -1,8 +1,11 @@
 name: MOON Post - Generare
 
 on:
-  # mp15: cronul GitHub OPRIT (18 sept 2026) - motorul ruleaza in workerul moon-post.
-  # Fluxul ramane doar ca rezerva, pornit din panou prin workflow_dispatch.
+  schedule:
+    # la 5 minute, ca „Genereaza acum" fara GH_TOKEN sa nu astepte mult.
+    # Panoul spune cine e scadent si cine a fost pornit din buton.
+    # Repo public = minute Actions nelimitate.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       client_id:

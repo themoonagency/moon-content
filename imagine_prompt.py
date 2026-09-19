@@ -198,7 +198,8 @@ def _regula_text() -> str:
         return ("- Text pe imagine: un titlu de maximum 6 cuvinte și un singur rând sub el, "
                 "de maximum 10 cuvinte, într-o zonă goală a cadrului. Fără alt text.")
     return ("- Fără text, litere, cifre sau logo-uri în imagine — nici în scenă: fără panouri, "
-            "firme, afișe, etichete sau ștampile cu litere pe ele.")
+            "firme, afișe, etichete sau ștampile cu litere pe ele. Excepție: ecranul unui aparat "
+            "din scenă poate arăta interfața lui reală, cu textul mărunt și neclar.")
 
 
 def fara_text_la_generare() -> str:
@@ -208,7 +209,8 @@ def fara_text_la_generare() -> str:
     fel = (config.IMAGINE_TEXT_PE_POZA or "nu").strip().lower()
     if fel in ("titlu", "titlu_sub") and fel_azi() != "coperta":
         return ""
-    return " No text, letters, numbers, signs, labels or logos anywhere in the image."
+    return (" No text, letters, numbers, signs, labels or logos anywhere in the image. "
+            "A device screen may show its real interface, its small text left soft and unreadable.")
 
 
 def _cerinte() -> str:
@@ -269,10 +271,14 @@ CUM ALEGI
    spune cine o folosește la muncă — NU se pun la socoteală, oricât de bine ar sta în cadru.
 7. LOCUL e cel în care se întâmplă subiectul articolului: un birou adevărat, un depozit, un magazin,
    o masă de lucru cu urme de folosință. NU un studio, NU un banc de lucru curat pe fundal gol.
-8. PROBA, înainte să scrii promptul: dacă cineva vede poza fără titlu, trebuie să ghicească din ce
+8. Dacă calea de azi nu cere o scenă fără oameni, preferă cadrul în care SE ÎNTÂMPLĂ ceva
+   chiar acum: cineva face lucrul din articol — din spate, o siluetă, mâinile în acțiune —
+   nu obiectele lăsate singure pe masă. Oricare ar fi calea, planul secundar, ușor neclar,
+   arată și el lumea articolului: o încăpere în care se lucrează, nu un perete gol.
+9. PROBA, înainte să scrii promptul: dacă cineva vede poza fără titlu, trebuie să ghicească din ce
    domeniu e articolul. Dacă tot ce poate spune e „ceva abstract, probabil business", ai ales greșit —
    întoarce-te la pasul 1 și ia altă idee.
-9. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
+10. Pune UN detaliu care leagă imaginea de articolul ăsta și de niciun altul.
 
 NU FOLOSI NICIODATĂ
 {chr(10).join('- ' + x for x in INTERZISE)}
@@ -287,9 +293,13 @@ REGULI DE FORMĂ
   lumina · starea.
 - Culorile din prompt sunt ale locului și ale lucrurilor din el. Paleta clientului intră cel mult
   ca UN accent pe un singur obiect — nu ca schema de culori a cadrului și nu ca fundal.
+- Lumina poate veni dintr-o sursă REALĂ aflată în scenă — un ecran aprins, un ring light,
+  o lampă de lucru, o vitrină — cu restul cadrului mai întunecat. Numește sursa în prompt.
 {_regula_text()}
 - Fără fețe de oameni recognoscibile: mâini, siluete, spatele cuiva, da.
-- Fără mărci, fără produse ale concurenței.
+- Fără mărci și fără produse ale concurenței clientului. Excepție: când articolul e DESPRE
+  o platformă sau o unealtă anume, interfața ei pe ecranul din scenă e exact obiectul de la
+  pasul 6 și SE PUNE.
 - Răspunzi EXACT în forma asta, fără alt text:
 IDEI:
 1. <prima idee, un rând, în română>
@@ -308,7 +318,7 @@ def _pare_slab(prompt: str) -> list:
     t = (prompt or "").lower()
     gasite = []
     for cuv, eticheta in [
-        ("dashboard", "dashboard"), ("hologram", "hologramă"), ("glowing", "„glowing”"),
+        ("dashboard", "dashboard"), ("hologram", "hologramă"),
         ("circuit", "circuite"), ("neural", "rețea neuronală"), ("futuristic", "futurist"),
         ("robot", "robot"), ("lightbulb", "bec"), ("light bulb", "bec"),
         ("handshake", "strângere de mână"), ("binary code", "cod binar"),
@@ -318,10 +328,19 @@ def _pare_slab(prompt: str) -> list:
         ("spacer", "piesă fără nume"), ("tokens", "jetoane"), ("slab", "placă"),
         ("digital transformation", "„digital transformation”"),
         ("floating ui", "UI plutitor"), ("data visualization", "grafic"),
-        ("charts", "grafice"), ("graphs", "grafice"), ("neon", "neon"),
+        ("charts", "grafice"), ("graphs", "grafice"),
     ]:
         if cuv in t:
             gasite.append(eticheta)
+    # „glowing” și „neon” sunt clișee doar când plutesc (particule, contururi, holograme).
+    # O sursă REALĂ de lumină din scenă — ecran, ring light, lampă, vitrină, fereastră —
+    # e exact ce face poza vie, deci nu se respinge.
+    surse_lumina = ("screen", "monitor", "laptop", "phone", "tablet", "display",
+                    "ring light", "lamp", "storefront", "window", "neon sign")
+    if "glowing" in t and not any(s in t for s in surse_lumina):
+        gasite.append("„glowing” fără o sursă reală de lumină")
+    if "neon" in t and "neon sign" not in t:
+        gasite.append("neon")
     # Cliseul care s-a nascut chiar din reparatia anterioara: carnetul cu lista
     # scrisa de mana, pixul si cana de cafea pe un birou de lemn. Nu e „glowing
     # hologram", deci trecea de toate verificarile — dar a iesit de patru ori la

@@ -1268,6 +1268,20 @@ cer("carnet pe birou (deja folosit)" in imagine_prompt._pare_slab(
     "wooden desk, warm afternoon light coming in sideways, shot on 35mm, shallow depth."),
     "carnetul pe birou e prins ca cliseu, desi n-are niciun cuvant interzis")
 cer(not imagine_prompt._pare_slab(
+    "A dim workspace where hands adjust a ring light, the glowing laptop screen showing a real "
+    "page, background softly blurred, shot on 35mm, waist level, shallow depth of field, quiet "
+    "late-evening mood."),
+    "o sursa reala de lumina din scena (ecran aprins, ring light) nu mai pica la glowing",
+    imagine_prompt._pare_slab(
+    "A dim workspace where hands adjust a ring light, the glowing laptop screen showing a real "
+    "page, background softly blurred, shot on 35mm, waist level, shallow depth of field, quiet "
+    "late-evening mood."))
+cer("„glowing” fără o sursă reală de lumină" in imagine_prompt._pare_slab(
+    "Glowing particles floating above an empty dark surface, abstract streaks of light, soft "
+    "haze, gentle gradients only, no objects at all, shot on 35mm, shallow depth of field, "
+    "moody dramatic atmosphere, deep shadows everywhere around."),
+    "glowing fara o sursa reala de lumina ramane cliseu si se respinge")
+cer(not imagine_prompt._pare_slab(
     "A loading ramp at the back of a small warehouse at dusk, one pallet still wrapped and "
     "three already opened, tyre marks on the wet concrete, shot on 35mm from waist level, "
     "low sideways light, muted greys and a single orange strap."),
