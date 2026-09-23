@@ -82,7 +82,7 @@ Scrii despre UN SINGUR produs din catalog. Datele lui, exact așa cum sunt în m
   Link: {p.get('url')}
   Descriere din magazin: {(p.get('descriere') or '')[:900]}
 
-Alte produse din magazin, care pot merge împreună cu el:
+Alte produse din magazin (unele îl completează, altele sunt doar variante ale lui):
 {_conexe(p)}
 
 REGULI STRICTE, mai importante decât stilul:
@@ -90,16 +90,25 @@ REGULI STRICTE, mai importante decât stilul:
 - NU inventa reduceri sau termene („doar azi", „ultimele bucăți") dacă nu reies din datele de mai sus.
 - Prețul se scrie EXACT ca mai sus, sau deloc.
 - Linkul se pune ca atare, fără parametri adăugați.
-- Scrii în română, cu diacritice.
+- Scrii în română corectă, cu diacritice, și reciți fiecare propoziție ca un corector:
+  acordul după numerale („dulap cu 5 uși", nu „5 ușilor"), acordul în gen și număr, articolul.
+- Numele din magazin vin des fără diacritice sau prescurtate („dulap 5 usi"). În textul tău
+  le scrii corect și acordate în propoziție; numele exact din magazin rămâne doar textul linkului.
+- Te adresezi cititorului într-un singur fel pe tot textul (ori „tu", ori „dumneavoastră"), nu le amesteci.
 
 Produci:
 
 {ARTICOL_COMPLET if complet else ARTICOL_MAGAZIN}
-   OBLIGATORIU, dacă lista de mai sus nu e goală, o secțiune spre final cu titlul
-   „Merge bine cu" și 2-3 dintre acele produse, fiecare pe rândul lui, ca link
-   <a href="LINKUL EXACT">Numele produsului</a> urmat de o propoziție scurtă care
-   spune DE CE merge cu produsul principal. Nu inventa produse care nu sunt în listă
-   și nu schimba linkurile.
+   Spre final, dacă lista de mai sus nu e goală, recomandările, 1-3 produse în total:
+   - produsele care COMPLETEAZĂ produsul principal (se folosesc împreună cu el: altă piesă,
+     un accesoriu, un consumabil) intră la titlul „Merge bine cu";
+   - produsele care sunt doar variante sau alternative ale lui (același fel de produs, alt model,
+     altă culoare, alt set) intră la titlul „Vezi și" și NU spui despre ele că merg împreună
+     cu produsul principal: un dormitor nu „merge cu" alt dormitor.
+   Fiecare produs pe rândul lui, ca link <a href="LINKUL EXACT">Numele produsului</a> urmat de
+   o propoziție scurtă: la „Merge bine cu", de ce se folosește împreună cu el; la „Vezi și",
+   prin ce diferă de el. O secțiune fără produse nu se scrie.
+   Nu inventa produse care nu sunt în listă și nu schimba linkurile.
    Se încheie cu un îndemn și linkul produsului principal.
 {('   Îndemnul preferat al clientului: ' + config.CLIENT_CTA) if config.CLIENT_CTA else ''}
 
