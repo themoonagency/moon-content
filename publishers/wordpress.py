@@ -4,6 +4,8 @@ e suficient — nu are nevoie de rol de Administrator).
 """
 
 from __future__ import annotations
+from datetime import datetime, timezone
+
 import requests
 from requests.auth import HTTPBasicAuth
 
@@ -74,7 +76,10 @@ def create_post(
     resp = requests.post(url, json=payload, auth=_auth(), headers=_HEADERS, timeout=60)
     _raise_with_body(resp)
     data = resp.json()
-    return {"id": data["id"], "link": data.get("link")}
+    # data PRIMEI publicari (GMT), pentru datePublished — si la rescrierile facute mai tarziu de worker
+    gmt = str(data.get("date_gmt") or "")
+    publicat = (gmt if gmt.endswith("Z") else gmt + "Z") if gmt else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"id": data["id"], "link": data.get("link"), "publicat_la": publicat}
 
 
 def publish_article(title: str, html_content: str, meta_description: str, image_bytes: bytes | None) -> dict:
@@ -87,6 +92,7 @@ def publish_article(title: str, html_content: str, meta_description: str, image_
         status="publish",
     )
     post["image_url"] = media["url"]
+    post["wp"] = True          # id-ul e al unui articol WordPress (se tine pe ciorna ca wp_id)
     return post
 
 

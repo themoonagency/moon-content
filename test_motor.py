@@ -991,7 +991,10 @@ CIORNA_SEO = {
                     "<a href='https://themoonagency.ro/contact'>contact</a> "
                     "<a href='https://ins.ro/date'>INS</a></p>",
 }
-jsonld = seo.date_structurate(CIORNA_SEO, "https://themoonagency.ro/blog/tiktok-ads", "https://x/y.jpg")
+# graful de mai jos e cel pentru clientii din afara celor 4 site-uri MOON; pe themoonagency.ro,
+# moonpost.ro, moonchat.ro si moonsite.ro graful e altul (2 oct, auditul SEO) — vezi test_reguli_seo.py
+config.CLIENT_DOMAIN = "servicepopescu.ro"
+jsonld = seo.date_structurate(CIORNA_SEO, "https://servicepopescu.ro/blog/tiktok-ads", "https://x/y.jpg")
 cer(jsonld.startswith("<script type=\"application/ld+json\">"), "articolul pleaca cu date structurate")
 import json as _j
 graf = _j.loads(jsonld.split(">", 1)[1].rsplit("<", 1)[0])["@graph"]
@@ -1011,10 +1014,11 @@ org = [x for x in graf if x["@type"] == "Organization"][0]
 cer(org.get("vatID") == "RO12345678", "CUI-ul intra in datele structurate (se verifica la ANAF)")
 
 config.AUTOR_NUME = ""
-graf2 = _j.loads(seo.date_structurate(CIORNA_SEO, "https://themoonagency.ro/blog/x").split(">", 1)[1].rsplit("<", 1)[0])["@graph"]
+graf2 = _j.loads(seo.date_structurate(CIORNA_SEO, "https://servicepopescu.ro/blog/x").split(">", 1)[1].rsplit("<", 1)[0])["@graph"]
 cer(not [x for x in graf2 if x["@type"] == "Person"],
     "fara autor real, semneaza firma — nu inventam un nume")
 config.AUTOR_NUME = "Felix Ionescu"
+config.CLIENT_DOMAIN = "themoonagency.ro"
 
 # un articol bun are linkuri interne REALE, iar site-ul e citit
 config.SITE = [{"url": "https://themoonagency.ro/servicii", "titlu": "Servicii"},
@@ -1097,6 +1101,8 @@ cer(time.time() - _t0 < 1.0,
 # --- 15b. semnatura autorului chiar se vede pe articol (mp18) ---
 # 11 sept, themoonagency.ro/blog: niciun autor vizibil si ZERO date structurate. Autorul
 # intra doar in JSON-LD, iar JSON-LD se lipea printr-un PUT pe care /api/blog nu-l accepta.
+# un client oarecare: pe cele 4 site-uri MOON autorul e mereu Felix Dumitru (vezi test_reguli_seo.py)
+PANOU["clienti"][0]["domeniu"] = "servicepopescu.ro"
 PANOU["clienti"][0]["config"].update({
     "autor_nume": "Felix <Dumitru>", "autor_rol": "fondator", "autor_url": "https://themoonagency.ro/despre",
     "cui": "RO123", "oras": "Bucuresti", "blog_tip": "api",
@@ -1156,6 +1162,7 @@ config.aplica(dict(PANOU["clienti"][0], config=dict(PANOU["clienti"][0]["config"
 cer("url" not in seo.autor_pentru_blog()["author"], "author.url cu javascript: nu pleaca spre blog",
     seo.autor_pentru_blog()["author"])
 PANOU["clienti"][0]["config"].update({"autor_nume": "", "autor_rol": "", "autor_url": "", "blog_tip": "api"})
+PANOU["clienti"][0]["domeniu"] = "themoonagency.ro"
 config.aplica(PANOU["clienti"][0])
 
 # --- promptul de imagine: scris separat, cu articolul in fata ---
@@ -1745,6 +1752,14 @@ cer(_payloads[0].get("tools") and _payloads[0]["generationConfig"]["maxOutputTok
     and not _payloads[1].get("tools") and _payloads[1]["generationConfig"]["maxOutputTokens"] == 4096,
     "doar articolul complet cauta pe net", [(bool(x.get("tools")), x["generationConfig"]["maxOutputTokens"]) for x in _payloads])
 config.aplica(PANOU["clienti"][0])
+
+# Regulile SEO din 2 oct (poarta de limba si bani, schema pe site-urile noastre, titlul dublat): test
+# separat, rulat in alt proces (aici `requests` e deja inlocuit), ca sa intre si el in poarta de publicare.
+import subprocess
+_r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_reguli_seo.py")],
+                    capture_output=True, text=True, timeout=300)
+cer(_r.returncode == 0, "test_reguli_seo.py trece (poarta de limba si bani, schema MOON, titlul dublat)",
+    (_r.stdout[-700:] + _r.stderr[-400:]))
 
 print("\n" + (f"{len(PICA)} TESTE PICA" if PICA else "toate trec"))
 sys.exit(1 if PICA else 0)

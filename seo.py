@@ -21,9 +21,11 @@ from __future__ import annotations
 import html as html_lib
 import json
 import re
+import unicodedata
 from datetime import datetime, timezone
 
 from config import config
+from siteuri_moon import PERSOANA_FELIX, site_moon
 
 # atribute si tag-uri care n-au ce cauta intr-un articol venit de la un model
 _TAG_RAU = re.compile(r"<\s*(script|style|iframe|object|embed|form|input|link|meta)\b[^>]*>.*?<\s*/\s*\1\s*>",
@@ -81,14 +83,55 @@ def _radacina() -> str:
     return d if d.startswith(("http://", "https://")) else "https://" + d
 
 
-def date_structurate(ciorna: dict, adresa: str, adresa_imagine: str | None = None) -> str:
+def _iso(x) -> str:
+    """Ca isoSec din seo.js: data in UTC, „2026-10-02T10:00:00+00:00"; '' daca nu se poate citi.
+    Fara fus orar = UTC (asa o citeste si workerul)."""
+    if isinstance(x, datetime):
+        d = x if x.tzinfo else x.replace(tzinfo=timezone.utc)
+    else:
+        s = str(x or "").strip()
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2})(?::(\d{2}))?(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$", s, re.I)
+        if not m:
+            return ""
+        fus = (m.group(4) or "Z").upper()
+        fus = "+00:00" if fus == "Z" else (fus if ":" in fus else fus[:3] + ":" + fus[3:])
+        try:
+            d = datetime.fromisoformat(f"{m.group(1)}T{m.group(2) or '00:00'}:{m.group(3) or '00'}{fus}")
+        except ValueError:
+            return ""
+    return d.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def _script_ld(obj: dict) -> str:
+    corp = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    # json.dumps NU escapeaza „<". Un titlu care contine „</script>" ar inchide
+    # blocul mai devreme si restul ar deveni marcaj viu pe site-ul clientului.
+    corp = corp.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    return '<script type="application/ld+json">' + corp + "</script>"
+
+
+def date_structurate(ciorna: dict, adresa: str, adresa_imagine: str | None = None, extra: dict | None = None) -> str:
     """JSON-LD pentru articol, ca un singur graf cu @id-uri incrucisate — asa
     arata schema scrisa de om, nu trei blocuri lipite unul dupa altul.
-    Fara FAQPage, fara HowTo, fara Speakable: nu mai produc nimic."""
+    Fara FAQPage, fara HowTo, fara Speakable: nu mai produc nimic.
+
+    extra (2 oct, auditul SEO — ca dateStructurate din seo.js): publicat = data PRIMEI publicari
+    (None = nu o stim si se lasa deoparte; lipsa = acum), modificat (implicit acum), latime/inaltime =
+    marimea reala a pozei. Pe site-urile noastre graful e altul (_graf_moon): fara Organization proprie,
+    autorul Felix Dumitru."""
     baza = _radacina()
     if not baza or not adresa:
         return ""
-    acum = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    x = extra or {}
+    acum = _iso(x.get("acum") or datetime.now(timezone.utc))
+    if "publicat" in x and x["publicat"] is None:
+        publicat = ""
+    else:
+        publicat = (_iso(x["publicat"]) or acum) if x.get("publicat") else acum
+    modificat = (_iso(x["modificat"]) or acum) if x.get("modificat") else acum
+    moon = site_moon(config.CLIENT_DOMAIN)
+    if moon:
+        return _graf_moon(ciorna, adresa, adresa_imagine, publicat, modificat, x.get("latime"), x.get("inaltime"), moon)
     org_id = f"{baza}/#organization"
     graf: list[dict] = []
 
@@ -100,18 +143,21 @@ def date_structurate(ciorna: dict, adresa: str, adresa_imagine: str | None = Non
         "headline": (ciorna.get("seo_title") or "")[:110],
         "description": ciorna.get("meta_description") or "",
         "inLanguage": "ro-RO",
-        "datePublished": acum,
-        # se pune egal cu data publicarii; nu se atinge decat la o modificare reala
-        "dateModified": acum,
+        # prima publicare; la o actualizare se schimba doar dateModified
+        "datePublished": publicat,
+        "dateModified": modificat,
         "publisher": {"@id": org_id},
         "wordCount": cuvinte(ciorna.get("article_html") or ""),
     }
+    if not publicat:
+        del articol["datePublished"]
     if ciorna.get("intrebare") and ciorna.get("raspuns_scurt"):
         # intrebarea la care raspunde pagina, in clar — asta cauta motoarele cu AI
         articol["about"] = {"@type": "Thing", "name": ciorna.get("topic_title") or ciorna["intrebare"]}
         articol["abstract"] = ciorna["raspuns_scurt"]
     if adresa_imagine:
-        articol["image"] = {"@type": "ImageObject", "url": adresa_imagine, "width": 1536, "height": 1024}
+        articol["image"] = {"@type": "ImageObject", "url": adresa_imagine,
+                            "width": x.get("latime") or 1536, "height": x.get("inaltime") or 1024}
 
     if config.AUTOR_NUME:
         autor_id = (config.AUTOR_URL or (baza + "/echipa/")) + "#person"
@@ -151,13 +197,45 @@ def date_structurate(ciorna: dict, adresa: str, adresa_imagine: str | None = Non
     if config.LOGO_URL:
         org["logo"] = {"@type": "ImageObject", "url": config.LOGO_URL}
     graf.append(org)
+    return _script_ld({"@context": "https://schema.org", "@graph": graf})
 
-    corp = json.dumps({"@context": "https://schema.org", "@graph": graf},
-                      ensure_ascii=False, separators=(",", ":"))
-    # json.dumps NU escapeaza „<". Un titlu care contine „</script>" ar inchide
-    # blocul mai devreme si restul ar deveni marcaj viu pe site-ul clientului.
-    corp = corp.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    return '<script type="application/ld+json">' + corp + "</script>"
+
+def _graf_moon(ciorna: dict, adresa: str, adresa_imagine, publicat: str, modificat: str,
+               latime, inaltime, moon: dict) -> str:
+    """Site-urile noastre (siteuri_moon.py): site-ul isi descrie singur organizatia, deci aici doar o
+    referim (publisher -> @id-ul ei); autorul e obiectul Person comun; BreadcrumbList doar unde pagina
+    nu-l face singura, spre /blog fara bara. NICIUN nod Organization."""
+    titlu = (ciorna.get("seo_title") or "")[:110]
+    articol = {
+        "@type": "BlogPosting", "@id": adresa + "#article", "url": adresa,
+        "isPartOf": {"@id": adresa + "#webpage"}, "mainEntityOfPage": {"@id": adresa + "#webpage"},
+        "headline": titlu, "description": ciorna.get("meta_description") or "", "inLanguage": "ro-RO",
+        "datePublished": publicat, "dateModified": modificat,
+        "author": {"@id": PERSOANA_FELIX["@id"]}, "publisher": {"@id": moon["org"]},
+        "wordCount": cuvinte(ciorna.get("article_html") or ""),
+    }
+    if not publicat:
+        del articol["datePublished"]
+    if not articol["description"]:
+        del articol["description"]
+    if ciorna.get("intrebare") and ciorna.get("raspuns_scurt"):
+        articol["about"] = {"@type": "Thing", "name": ciorna.get("topic_title") or ciorna["intrebare"]}
+        articol["abstract"] = ciorna["raspuns_scurt"]
+    if adresa_imagine:
+        articol["image"] = {"@type": "ImageObject", "url": adresa_imagine}
+        if latime and inaltime:
+            articol["image"]["width"] = latime
+            articol["image"]["height"] = inaltime
+    pagina = {"@type": "WebPage", "@id": adresa + "#webpage", "url": adresa, "name": titlu, "inLanguage": "ro-RO"}
+    graf = [articol, pagina, {**PERSOANA_FELIX, "sameAs": list(PERSOANA_FELIX["sameAs"])}]
+    if moon["breadcrumb"]:
+        pagina["breadcrumb"] = {"@id": adresa + "#breadcrumb"}
+        graf.append({"@type": "BreadcrumbList", "@id": adresa + "#breadcrumb", "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Acasă", "item": moon["baza"] + "/"},
+            {"@type": "ListItem", "position": 2, "name": "Blog", "item": moon["baza"] + "/blog"},
+            {"@type": "ListItem", "position": 3, "name": titlu, "item": adresa},
+        ]})
+    return _script_ld({"@context": "https://schema.org", "@graph": graf})
 
 
 CLASA_SEMNATURA = "moon-autor"
@@ -199,6 +277,93 @@ def cu_semnatura(html: str) -> str:
     if m:
         return h[:m.end()] + bloc + h[m.end():]
     return bloc + h
+
+
+# Titlul dublat pe blog (2 oct) — portat din faraTitluDublat (curatenie.js, motorul principal). Site-ul pune
+# titlul articolului in <h1>, deasupra textului; modelul il scrie si el ca <h1> la inceputul articolului,
+# deci pe blog titlul aparea de doua ori. Ce pleaca pe blog: fara titlul de la inceput, fara niciun H1,
+# primul titlu de sectiune H2. Ciorna din panou isi pastreaza H1-ul (controalele se bazeaza pe el).
+
+_ENTITATI = {"nbsp": " ", "amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'", "laquo": "«", "raquo": "»",
+             "bdquo": "„", "rdquo": "”", "ldquo": "“", "rsquo": "’", "lsquo": "‘", "ndash": "–", "mdash": "—",
+             "hellip": "…", "euro": "€", "copy": "©", "reg": "®"}
+
+
+def _unescape_html(t: str) -> str:
+    """Entitatile, intr-o SINGURA trecere, exact ca unescapeHtml din html.js (nu html.unescape: alt set)."""
+    def una(m):
+        c = m.group(1).lower()
+        try:
+            n = int(c[2:], 16) if c.startswith("#x") else int(c[1:]) if c.startswith("#") else None
+        except ValueError:
+            n = None
+        if c.startswith("#"):
+            return chr(n) if n and 0 < n <= 0x10FFFF else m.group(0)
+        return _ENTITATI.get(c, m.group(0))
+    return re.sub(r"&(#x[0-9a-f]+|#\d+|[a-z]+);", una, str(t or ""), flags=re.I)
+
+
+def _cuvinte_titlu(s) -> list[str]:
+    t = _unescape_html(re.sub(r"<[^>]+>", " ", str(s or "")))
+    t = "".join(ch for ch in unicodedata.normalize("NFD", t) if not "\u0300" <= ch <= "\u036f")
+    return [w for w in re.sub(r"[^a-z0-9]+", " ", t.lower()).strip().split(" ") if w]
+
+
+def _cuvinte_in_ordine(x: list, y: list) -> int:
+    """Cate cuvinte au in comun, in aceeasi ordine (cea mai lunga subsecventa comuna)."""
+    r = [0] * (len(y) + 1)
+    for w in x:
+        n = [0]
+        for j in range(1, len(y) + 1):
+            n.append(r[j - 1] + 1 if w == y[j - 1] else max(r[j], n[j - 1]))
+        r = n
+    return r[len(y)]
+
+
+def titlu_aproape_egal(a, b) -> bool:
+    """Doua titluri spun acelasi lucru: la fel fara diacritice, majuscule si punctuatie, sau aproape la fel,
+    cu cuvintele in aceeasi ordine. Nu e dublura o sectiune mult mai scurta sau cu aceleasi cuvinte in alta ordine."""
+    x, y = _cuvinte_titlu(a), _cuvinte_titlu(b)
+    if not x or not y:
+        return False
+    if x == y:
+        return True
+    s, l = (x, y) if len(x) <= len(y) else (y, x)
+    if len(s) < 3 or len(s) / len(l) < 0.6:
+        return False
+    comune = _cuvinte_in_ordine(s, l)
+    return comune / len(s) >= 0.75 and comune / len(l) >= 0.6
+
+
+_B1 = r"(?![A-Za-z0-9_])"
+
+
+def fara_titlu_dublat(html: str, titluri) -> str:
+    """Textul articolului asa cum pleaca pe blog. `titluri` = titlul articolului (sau o lista). Primul titlu
+    de sectiune, daca e H1 sau H2 si repeta titlul, iese (si urmatorul, cand il repeta si el); orice alt H1
+    devine H2; primul titlu de sectiune ramas, daca e H3–H6, devine H2."""
+    h = str(html or "")
+    tinte = [str(t or "") for t in (titluri if isinstance(titluri, (list, tuple)) else [titluri]) if _cuvinte_titlu(t)]
+    for _ in range(3):
+        if not tinte:
+            break
+        m = re.search(r"<h([1-6])" + _B1 + r"[^>]*>([\s\S]*?)</h\1\s*>", h, re.I)
+        if not m or int(m.group(1)) > 2 or not any(titlu_aproape_egal(m.group(2), t) for t in tinte):
+            break
+        tinte.append(m.group(2))
+        h = h[:m.start()] + re.sub(r"^\s+", "", h[m.end():])
+    h = re.sub(r"<h1(" + _B1 + r"[^>]*)>", r"<h2\1>", h, flags=re.I)
+    h = re.sub(r"</h1\s*>", "</h2>", h, flags=re.I)
+    p = re.search(r"<h([2-6])(" + _B1 + r"[^>]*)>([\s\S]*?)</h\1\s*>", h, re.I)
+    if p and p.group(1) != "2":
+        h = h[:p.start()] + "<h2" + p.group(2) + ">" + p.group(3) + "</h2>" + h[p.end():]
+    return h
+
+
+def pentru_site(html: str, titlu: str) -> str:
+    """Articolul asa cum pleaca spre blog (WordPress sau API), in ordinea din publicare.js: semnatura
+    autorului refacuta din setarile de ACUM, apoi fara titlul dublat si fara niciun H1."""
+    return fara_titlu_dublat(cu_semnatura(html or ""), titlu)
 
 
 def autor_pentru_blog() -> dict:

@@ -16,6 +16,7 @@ import requests
 import time
 
 import panel
+import poarta
 import seo
 from config import config
 from publishers import blog_api, gbp, meta, wordpress
@@ -46,6 +47,33 @@ def _imagine_ciorna(ciorna: dict) -> bytes | None:
     raise RuntimeError(f"Ciorna are imagine, dar nu am putut-o lua din panou: {ultima}")
 
 
+def dimensiuni_jpeg(b: bytes | None) -> tuple | None:
+    """(latime, inaltime) ale unui JPEG, din antet (SOF), fara sa-l decodam. None daca nu e JPEG.
+    Ca dimensiuniJpeg din publicare.js: datele structurate si blogul primesc marimea reala a pozei."""
+    if not b or len(b) < 12 or b[0] != 0xFF or b[1] != 0xD8:
+        return None
+    i = 2
+    while i + 9 < len(b):
+        if b[i] != 0xFF:
+            i += 1
+            continue
+        m = b[i + 1]
+        if m == 0xFF:
+            i += 1
+            continue
+        if m in (0xD8, 0x01) or 0xD0 <= m <= 0xD7:
+            i += 2
+            continue
+        lungime = (b[i + 2] << 8) | b[i + 3]
+        if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
+            inaltime, latime = (b[i + 5] << 8) | b[i + 6], (b[i + 7] << 8) | b[i + 8]
+            return (latime, inaltime) if latime and inaltime else None
+        if lungime < 2:
+            return None
+        i += 2 + lungime
+    return None
+
+
 def _adresa_imagine(ciorna: dict) -> str | None:
     """Adresa publica a imaginii din panou — Meta si Google o descarca de acolo."""
     cheie = ciorna.get("imagine_key")
@@ -67,19 +95,39 @@ def _adresa_imagine_ig(ciorna: dict) -> str | None:
 def publica(ciorna: dict) -> None:
     draft_id = ciorna["id"]
     print(f"  public {draft_id}: {ciorna.get('seo_title')}")
-    # Semnatura autorului se reface din setarile de ACUM: autorul se poate schimba intre
-    # generare si aprobare, iar ciornele scrise inainte de 11 sept n-o au deloc.
-    ciorna["article_html"] = seo.cu_semnatura(ciorna.get("article_html") or "")
 
     lipsa = config.lipsuri_publicare([c for c in str(ciorna.get("canale") or "wp").split(",") if c])
     if lipsa:
         panel.actualizeaza(draft_id, stare="eroare", eroare="Lipsesc " + ", ".join(lipsa))
         return
 
-    imagine = _imagine_ciorna(ciorna)
     canale = [c for c in str(ciorna.get("canale") or "wp").split(",") if c]
     # ce a reusit deja la o incercare anterioara nu se mai face o data
     facut = ciorna.get("rezultat") if isinstance(ciorna.get("rezultat"), dict) else {}
+
+    # Poarta de limba si de bani (2 oct, auditul SEO — ca publicare.js din worker): ce se corecteaza
+    # sigur pleaca corectat; ce nu se poate corecta opreste blogul si restul canalelor. Retelele unei
+    # ciorne al carei articol e deja pe site merg mai departe. Blogul manual nu e oprit (il copiaza un om).
+    # Ciorna din panou (D1) ramane cu textul vechi: ruta motorului nu primeste campurile corectate.
+    if "wp" in canale and not facut.get("wp_link"):
+        pg = poarta.la_publicare(ciorna)
+        ciorna = pg["ciorna"]
+        if pg["reparate"]:
+            print("  poarta: " + "; ".join(pg["reparate"][:5]))
+        if pg["ramase"] and not config.BLOG_MANUAL:
+            panel.actualizeaza(draft_id, stare="eroare",
+                               eroare="Articolul nu pleacă pe blog: " + "; ".join(pg["ramase"][:3])
+                               + ". Corectează ciorna în panou și aprob-o din nou.")
+            return
+
+    # Ce pleaca spre site: titlul NU se mai repeta in text (site-ul il pune ca H1), fara niciun H1, iar
+    # semnatura autorului se reface din setarile de ACUM (autorul se poate schimba intre generare si
+    # aprobare, iar ciornele scrise inainte de 11 sept n-o au deloc).
+    ciorna["article_html"] = seo.pentru_site(ciorna.get("article_html") or "", ciorna.get("seo_title") or "")
+
+    imagine = _imagine_ciorna(ciorna)
+    # marimea reala a pozei, pentru blog si pentru datele structurate
+    dim = dimensiuni_jpeg(imagine)
 
     if facut.get("wp_link"):
         _publica_social(ciorna, draft_id,
@@ -112,6 +160,7 @@ def publica(ciorna: dict) -> None:
                 meta_description=ciorna.get("meta_description") or "",
                 image_url=adresa_img,
                 tags=[t for t in str(ciorna.get("tags") or "").split(",") if t.strip()],
+                dim=dim,
                 **seo.autor_pentru_blog(),
             )
         else:
@@ -130,17 +179,20 @@ def publica(ciorna: dict) -> None:
     # Datele structurate au nevoie de adresa finala a articolului, deci se pun
     # abia acum, printr-o a doua trecere. Daca blogul nu accepta actualizarea,
     # nu e o tragedie: articolul e deja publicat.
-    _pune_date_structurate(ciorna, wp)
+    _pune_date_structurate(ciorna, wp, dim)
 
     _publica_social(ciorna, draft_id, wp)
 
 
-def _pune_date_structurate(ciorna: dict, wp: dict) -> None:
+def _pune_date_structurate(ciorna: dict, wp: dict, dim: tuple | None = None) -> None:
     adresa = (wp.get("link") or "").strip()
     if not adresa:
         return
     try:
-        bloc = seo.date_structurate(ciorna, adresa, wp.get("image_url"))
+        # datePublished = data trimisa blogului la publicare (prima publicare), dateModified = acum
+        bloc = seo.date_structurate(ciorna, adresa, wp.get("image_url"),
+                                    {"publicat": wp.get("publicat_la"),
+                                     "latime": dim[0] if dim else None, "inaltime": dim[1] if dim else None})
         if not bloc:
             return
         html_nou = (ciorna.get("article_html") or "") + bloc
@@ -170,6 +222,14 @@ def _publica_social(ciorna: dict, draft_id: str, wp: dict, note_initiale: list[s
     # ramane de reincercat sau se inchide
     cazute: list[str] = []
     facut = ciorna.get("rezultat") if isinstance(ciorna.get("rezultat"), dict) else {}
+    # data PRIMEI publicari (2 oct): rescrierile facute de worker o pastreaza in datePublished
+    publicat_la = wp.get("publicat_la") or facut.get("publicat_la")
+    if publicat_la:
+        rezultat["publicat_la"] = publicat_la
+    # id-ul articolului WordPress: rescrierea de mai tarziu il actualizeaza direct
+    id_wp = facut.get("wp_id") or (wp.get("id") if wp.get("wp") else None)
+    if id_wp and str(id_wp).isdigit():
+        rezultat["wp_id"] = int(id_wp)
 
     # canalele alese în programul clientului pentru slotul ăsta
     canale = [c for c in str(ciorna.get("canale") or "wp").split(",") if c]

@@ -3,7 +3,8 @@ Publicare pe un blog care expune un API propriu (alternativa la WordPress).
 
 Contractul asteptat de la site-ul clientului:
     POST <BLOG_API_URL>   Authorization: Bearer <token>
-        {"title", "excerpt", "content" (HTML), "image", "date", "tags",
+        {"title", "excerpt", "content" (HTML), "image", "image_webp"?, "image_width"?,
+         "image_height"?, "date", "tags",
          "author": {"type": "Person"|"Organization", "name", "role"?, "url"?},
          "organization": {"name", "vat_id"?, "city"?, "url"?}}
         (content are deja semnatura vizibila „Scris de …", clasa moon-autor)
@@ -16,6 +17,7 @@ adresa publica in campul "image".
 """
 
 from __future__ import annotations
+import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -42,6 +44,15 @@ def _radacina() -> str:
     return "https://" + config.CLIENT_DOMAIN if config.CLIENT_DOMAIN else ""
 
 
+def adresa_webp(adresa_jpg: str | None) -> str:
+    """Varianta WebP a pozei din panou: /img/<x>.jpg -> /img/<x>.webp (panoul o face la prima cerere,
+    ca webp.js din worker). '' daca adresa nu e un JPG de pe /img/."""
+    a = str(adresa_jpg or "")
+    if not re.search(r"/img/[a-z0-9._-]+\.jpe?g\Z", a, re.I):
+        return ""
+    return re.sub(r"\.jpe?g\Z", ".webp", a, flags=re.I)
+
+
 def _antete() -> dict:
     return {**_HEADERS, "Authorization": f"Bearer {config.BLOG_API_TOKEN}"}
 
@@ -63,9 +74,10 @@ def publish_article(
     tags: list[str] | None = None,
     author: dict | None = None,
     organization: dict | None = None,
+    dim: tuple | None = None,
 ) -> dict:
-    """Trimite articolul. Intoarce {"id", "link", "image_url"} ca WordPress,
-    ca sa poata fi folosit la fel mai departe (Facebook/Instagram)."""
+    """Trimite articolul. Intoarce {"id", "link", "image_url", "publicat_la"} ca WordPress,
+    ca sa poata fi folosit la fel mai departe (Facebook/Instagram). dim = (latime, inaltime) reale ale pozei."""
     payload = {
         "title": title,
         "excerpt": meta_description or "",
@@ -74,6 +86,14 @@ def publish_article(
     }
     if image_url:
         payload["image"] = image_url
+        # varianta WebP (1200 px, plus -w480/-w800.webp pentru srcset) — pentru pagina blogului;
+        # `image` ramane JPG pentru previzualizarile de link (Facebook, WhatsApp, LinkedIn)
+        webp = adresa_webp(image_url)
+        if webp:
+            payload["image_webp"] = webp
+        # marimea reala (2 oct): site-ul pune width/height corecte (nu toate copertele sunt 1536x1024)
+        if dim and dim[0] and dim[1]:
+            payload["image_width"], payload["image_height"] = int(dim[0]), int(dim[1])
     if tags:
         payload["tags"] = [t for t in tags if t][:8]
     # cine semneaza: site-ul il poate arata si pune in datele lui structurate
@@ -106,7 +126,8 @@ def publish_article(
         link = _radacina() + link
     elif not link and slug:
         link = _radacina() + "/blog/" + slug
-    return {"id": slug or None, "link": link, "image_url": image_url}
+    # data trimisa = data PRIMEI publicari; rescrierile din worker o pastreaza in datePublished
+    return {"id": slug or None, "link": link, "image_url": image_url, "publicat_la": payload["date"]}
 
 
 def articole_existente(limita: int = 60) -> list[str]:

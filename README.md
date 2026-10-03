@@ -7,6 +7,12 @@ Rulează în GitHub Actions. Nu mai ține nicio stare în repo: clienții, cheil
 ciornele, aprobările și subiectele deja tratate stau în panou (Cloudflare Worker
 + D1 + R2). Codul panoului: `~/Moon Bot/moon-post`.
 
+**Din 17 sept motorul principal e workerul `moon-post`; ăsta e rezerva.** Fluxurile
+pornesc doar din panou (`workflow_dispatch`), fără cron (mp15). Regulile de SEO din
+2 oct sunt aceleași ca în worker: poarta de limbă și bani (`poarta.py`), schema pe
+site-urile MOON și autorul Felix Dumitru (`siteuri_moon.py`, `seo.py`), fără titlul
+dublat în text. Le verifică `test_reguli_seo.py`.
+
 ## Cum merge
 
 **`generate_draft.py`** (din oră în oră)

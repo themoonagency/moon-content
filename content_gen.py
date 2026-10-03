@@ -24,6 +24,7 @@ import requests
 
 from config import config
 import panel
+from poarta import bloc_reguli
 import retea
 
 def _gemini_url() -> str:
@@ -530,7 +531,9 @@ def generate_authority_draft() -> dict:
                 used_topics.append(t)
     used_block = "\n".join(f"- {t}" for t in used_topics) or "(niciunul încă)"
 
-    prompt = (_system_prompt() + _pagini_site() + _subiect_impus() +
+    # bloc_reguli: „î"/„â", „Ca"/„Că" si, pe site-urile noastre, fara sume in titlu/descriere si fara
+    # preturile MOON in text (2 oct, ca text.js din worker)
+    prompt = (_system_prompt() + _pagini_site() + _subiect_impus() + bloc_reguli() +
               f"\n\nSubiecte tratate în ultimele 45 de zile (NU le relua):\n{used_block}\n")
 
     payload = {

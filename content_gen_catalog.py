@@ -12,6 +12,7 @@ import json
 
 from config import config
 from content_gen import CONSUM, cheama_modelul, _extract_json, _repair_json
+from poarta import bloc_reguli
 
 
 def _pret(p: dict) -> str:
@@ -150,7 +151,7 @@ def genereaza_pentru_produs(produs: dict) -> dict:
     CONSUM["tokens_in"] = CONSUM["tokens_out"] = 0
 
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": _prompt(produs)}]}],
+        "contents": [{"role": "user", "parts": [{"text": _prompt(produs) + bloc_reguli()}]}],
         "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192 if articol_complet() else 4096},
     }
     if articol_complet():

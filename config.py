@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 import re
 
+from siteuri_moon import PERSOANA_FELIX, nume_autor, site_moon
+
 
 def _bifa(v) -> bool:
     """Bifele din panou vin ca True/False, dar un config mai vechi le poate avea
@@ -198,11 +200,20 @@ class Config:
         # acelasi carnet pe un birou de lemn
         self.IMAGINI_RECENTE = list(client.get("imagini_recente") or [])
         # cine semneaza articolele — conteaza si pentru Google, si pentru motoarele cu AI
-        self.AUTOR_NUME = c.get("autor_nume") or ""
+        # „Dumitru Felix" (cum era trecut in panou) -> „Felix Dumitru" (2 oct, auditul SEO)
+        self.AUTOR_NUME = nume_autor(c.get("autor_nume"))
         self.AUTOR_URL = c.get("autor_url") or ""
         self.AUTOR_ROL = c.get("autor_rol") or ""
         self.ORG_CUI = c.get("cui") or ""
         self.ORG_ORAS = c.get("oras") or ""
+        # site-urile noastre (siteuri_moon.py, ca client.js din worker): autorul e mereu Felix Dumitru, cu
+        # pagina /echipa, iar organizatia o descrie site-ul (fara CUI ca vatID — firma nu e platitoare de
+        # TVA — si fara oras)
+        if site_moon(self.CLIENT_DOMAIN):
+            self.AUTOR_NUME = PERSOANA_FELIX["name"]
+            self.AUTOR_URL = PERSOANA_FELIX["url"]
+            self.ORG_CUI = ""
+            self.ORG_ORAS = ""
         self.IMAGINE_STIL = c.get("imagine_stil") or Config.IMAGINE_STIL
         self.IMAGINE_RULAJ = c.get("imagine_rulaj") or ""
         self.FELURI_RECENTE = list(client.get("feluri_recente") or [])

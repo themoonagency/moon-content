@@ -20,6 +20,7 @@ import panel
 from config import config
 import imagine_prompt
 import imagine_ig as imagine_ig_mod
+import poarta
 import seo
 import cta
 from content_gen import CONSUM, curata_linkurile, generate_authority_draft
@@ -199,12 +200,18 @@ def pentru_client(client: dict) -> None:
     # HTML-ul vine de la un model care a citit paginile clientului: il tratam ca
     # text din afara si scoatem script/style/on… inainte sa ajunga pe site
     continut["article_html"] = seo.curata_html(continut["article_html"])
+    # Poarta de limba si de bani (2 oct, auditul SEO — ca ciorna.js din worker): „mențîn", „Că firmă
+    # mică", sume in titlu/descriere pe site-urile noastre, preturile MOON in text. Corecturile sigure pe
+    # loc; campurile scurte ramase le rescrie modelul intr-un apel mic; ce tot ramane intra in
+    # seo_probleme ca problema grava, deci ciorna nu pleaca singura.
+    pg = poarta.poarta(continut)
     # indemnul: stilul, culoarea, textele si pozitia vin din panou (cta.py)
     continut["article_html"] = cta.pune(continut["article_html"])
 
     # verificarile de SEO/GEO nu opresc nimic — se scriu pe ciorna, ca omul sa
-    # vada la ce sa se uite inainte de aprobare
-    probleme_seo = seo.controale(continut)
+    # vada la ce sa se uite inainte de aprobare. Grave nereparate intai (panoul pastreaza
+    # doar primele randuri), „autocorectat: …" (informativ) la final.
+    probleme_seo = pg["ramase"] + seo.controale(continut) + pg["jurnal"]
     if probleme_seo:
         print("  de verificat: " + "; ".join(probleme_seo))
     # semnatura vizibila a autorului, sub titlu — dupa controale, ca linkul spre pagina
